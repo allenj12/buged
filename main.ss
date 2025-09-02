@@ -125,16 +125,26 @@
         (set! gap-start (fxmax (fx1- gap-start) 0))
         (bytevector-u8-set! buffer gap-start 0)))
 
+(define view-end
+    (lambda ()
+        (let loop ([i view-start]
+                   [counter 0])
+            (if (and (fx>= i gap-start)
+                     (fx< i gap-end))
+                (loop gap-end counter)
+                (cond ((or (fx>= i size) (fx>= counter max-rows)) i)
+                      ((fx= (bytevector-u8-ref buffer i) 10) (loop (fx1+ i) (fx1+ counter)))
+                      (else (loop (fx1+ i) counter)))))))
+
 (define draw 
     (lambda ()
-        ;(lock-object buffer) ;;trying immobiles
-        (bytevector-u8-set! buffer gap-start 0)
+        (define ve (view-end))
         (let loop ([i view-start]
                    [depth -1])
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
                 (loop gap-end depth)
-                (when (fx< i size)
+                (when (fx< i ve)
                     (let ([char (bytevector-u8-ref buffer i)])
                         (cond ((and (fx> depth -1)
                                     (or (fx= char 41) (fx= char 93) (fx= char 125)))
@@ -166,15 +176,6 @@
     (lambda () 
         (clear) (draw) (call-with-values curs-yx move) (refresh)))
 
-(define past-view?
-    (lambda (s)
-        (let loop ([i s]
-                   [counter 0])
-            (cond ((fx= counter max-rows) #t)
-                  ((fx>= i gap-start) #f)
-                  ((fx= (bytevector-u8-ref buffer i) 10) (loop (fx1+ i) (fx1+ counter)))
-                  (else (loop (fx1+ i) counter))))))
-
 (define center
     (lambda (s counter)
         (if (fx< counter 0)
@@ -183,7 +184,7 @@
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (past-view? view-start))
+        (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
             (set! view-start (line-start (center gap-start (fx/ max-rows 2)))))))
 
 (define main-loop
@@ -213,7 +214,6 @@
         (init-pair 3 3 -1)
         (init-pair 4 4 -1)
         (init-pair 5 5 -1)
-        ;(set-cdr! (cddddr colors) colors)
         (set-screen-limits)))
 
 (define write-file
