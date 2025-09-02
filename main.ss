@@ -1,0 +1,275 @@
+#!chezscheme
+(import (chezscheme))
+
+(define *curses* (load-shared-object "libcurses.dylib"))
+;(define *stdlib* (load-shared-object "libSystem.B.dylib"))
+
+(define initscr (foreign-procedure #f "initscr" () uptr))
+(define getmaxx (foreign-procedure #f "getmaxx" (uptr) int))
+(define getmaxy (foreign-procedure #f "getmaxy" (uptr) int))
+(define raw (foreign-procedure #f "raw" () void))
+(define start-color (foreign-procedure #f "start_color" () void))
+(define init-pair (foreign-procedure #f "init_pair" (int int int) void))
+(define use-default-colors (foreign-procedure #f "use_default_colors" () void))
+(define color-set (foreign-procedure #f "color_set" (short void*) int))
+(define noecho (foreign-procedure #f "noecho" () void))
+(define getch (foreign-procedure #f "getch" () int))
+(define endwin (foreign-procedure #f "endwin" () void))
+(define refresh (foreign-procedure #f "refresh" () void))
+(define clear (foreign-procedure #f "clear" () void))
+(define move (foreign-procedure #f "move" (int int) void))
+(define addch (foreign-procedure #f "addch" (int) void))
+(define printw (foreign-procedure #f "printw" (uptr) void))
+
+;;-1 will be initialized on init
+(define start-size 5)
+(define size start-size)
+(define buffer -1)
+(define view-start 0)
+(define stdscr -1)
+(define max-cols -1)
+(define max-rows -1)
+(define file-name "")
+(define gap-start 0)
+(define gap-end start-size)
+(define colors '(1 2 3 4 5))
+
+(define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
+
+(define grow
+    (lambda () 
+        (let* ([nsize (fx+ size start-size)]
+               [nbuf (make-buffer nsize)]
+               [nend (fx+ gap-end start-size)]
+               [end-diff (fx- size gap-end)])
+                (bytevector-copy! buffer 0 nbuf 0 gap-start)
+                (bytevector-copy! buffer gap-end nbuf nend end-diff)
+                (set! buffer nbuf)
+                (set! size nsize)
+                (set! gap-end nend))))
+
+(define move-gap 
+    (lambda (amount)
+        (if (fx< amount 0)
+            (let ([move-dis (fxmin (fxabs amount) gap-start)])
+                (set! gap-end (fx- gap-end move-dis))
+                (set! gap-start (fx- gap-start move-dis))
+                (bytevector-copy! buffer gap-start buffer gap-end move-dis))
+            (let ([move-dis (fxmin amount (fx- size gap-end))])
+                (bytevector-copy! buffer gap-end buffer gap-start move-dis)
+                (set! gap-end (fx+ gap-end move-dis))
+                (set! gap-start (fx+ gap-start move-dis))))))
+
+(define move-back (lambda () (move-gap -1)))
+
+(define move-forward (lambda () (move-gap 1)))
+
+(define line-start
+    (lambda (s)
+        (let loop ([i s])
+            (if (and (fx> i 0)
+                     (not (fx= (bytevector-u8-ref buffer (fx1- i)) 10)))
+                (loop (fx1- i))
+                i))))
+
+(define line-end
+    (lambda (s)
+        (let loop ([i s])
+            (if (and (fx< i size)
+                     (not (fx= (bytevector-u8-ref buffer i) 10)))
+                (loop (fx1+ i))
+                i))))
+
+(define move-up
+    (lambda (s)
+        (let* ([ls (line-start s)]
+               [pls (line-start (fxmax (fx1- ls) 0))])
+            (fx+ pls (fxmin (fx- s ls)
+                            (fx- (line-end pls) pls))))))
+
+(define move-down
+    (lambda (s dist)
+        (let* ([le (line-end s)]
+               [nls (fxmin (fx1+ le) size)])
+            (if (= le nls)
+                s
+                (fxmin (fx+ nls dist)
+                        (line-end nls))))))
+
+(define page-down
+    (lambda ()
+        (move-gap (fx- view-start gap-start))
+        (let loop ([i gap-end]
+                   [counter max-rows])
+            (if (fx= counter 0)
+                 (move-gap (fx- i gap-end))
+                (loop (move-down i 0) (fx1- counter))))))
+
+(define page-up
+    (lambda ()
+        (let loop ([i view-start]
+                   [counter (fx/ max-rows 4)])
+            (if (fx= counter 0)
+                 (move-gap (fx- i gap-start))
+                (loop (move-up i) (fx1- counter))))))
+
+(define insch
+    (lambda (c)
+        (bytevector-u8-set! buffer gap-start c)
+        (set! gap-start (fx1+ gap-start)) ;;assume never at end?
+        (when (fx= gap-start gap-end)
+              (grow))))
+
+(define delch
+    (lambda ()
+        (set! gap-start (fxmax (fx1- gap-start) 0))
+        (bytevector-u8-set! buffer gap-start 0)))
+
+(define draw 
+    (lambda ()
+        ;(lock-object buffer) ;;trying immobiles
+        (bytevector-u8-set! buffer gap-start 0)
+        (let loop ([i view-start]
+                   [cs colors]
+                   [stack '()])
+            (if (and (fx>= i gap-start)
+                     (fx< i gap-end))
+                (loop gap-end cs stack)
+                (when (fx< i size)
+                    (let ([char (bytevector-u8-ref buffer i)])
+                        (cond ((and (not (null? stack))
+                                    (or (fx= char 41) (fx= char 93) (fx= char 125)))
+                                (color-set (car stack) 0)
+                                (addch char)
+                                (loop (fx1+ i) cs (cdr stack)))
+                            ((or (fx= char 40) (fx= char 91) (fx= char 123))
+                                (color-set (car cs) 0)
+                                (addch char)
+                                (loop (fx1+ i) (cdr cs) (cons (car cs) stack)))
+                            (else (color-set 0 0) 
+                                  (addch char)
+                                  (loop (fx1+ i) cs stack)))))))
+        ;(color-set 3 0)
+        ;(printw (fx+ view-start (object->reference-address buffer)))
+        ;(color-set 4 0)
+        ;(printw (fx+ gap-end (object->reference-address buffer)))
+        ;(unlock-object buffer)
+        ))
+
+(define curs-yx
+    (lambda ()
+        (values
+            (let loop ([i (line-end view-start)]
+                       [counter 0])
+                (if (fx< i gap-start)
+                    (loop (line-end (fx1+ i)) (fx1+ counter))
+                    counter))
+            (fx- gap-start (line-start gap-start)))))
+
+(define render 
+    (lambda () 
+        (clear) (draw) (call-with-values curs-yx move) (refresh)))
+
+(define past-view?
+    (lambda (s)
+        (let loop ([i s]
+                   [counter 0])
+            (cond ((fx= counter max-rows) #t)
+                  ((fx>= i gap-start) #f)
+                  ((fx= (bytevector-u8-ref buffer i) 10) (loop (fx1+ i) (fx1+ counter)))
+                  (else (loop (fx1+ i) counter))))))
+
+(define center
+    (lambda (s counter)
+        (if (fx< counter 0)
+            s
+            (center (move-up s) (fx1- counter)))))
+
+(define check-view
+    (lambda ()
+        (when (or (fx< gap-start view-start) (past-view? view-start))
+            (set! view-start (line-start (center gap-start (fx/ max-rows 2)))))))
+
+(define main-loop
+    (lambda ()
+        (when #t
+            (begin
+                (render)
+                (proc-char (getch))
+                (check-view)
+                (main-loop))
+            (endwin))))
+ 
+(define set-screen-limits 
+    (lambda () 
+        (set! max-rows (getmaxy stdscr))
+        (set! max-cols (getmaxx stdscr))))
+
+(define init 
+    (lambda () 
+        (set! stdscr (initscr))
+        (raw)
+        (noecho)
+        (start-color)
+        (use-default-colors)
+        (init-pair 1 1 -1)
+        (init-pair 2 2 -1)
+        (init-pair 3 3 -1)
+        (init-pair 4 4 -1)
+        (init-pair 5 5 -1)
+        (set-cdr! (cddddr colors) colors)
+        (set-screen-limits)))
+
+(define write-file
+        (lambda ()
+          (call-with-output-file file-name
+            (lambda (port)
+              (let loop ([i 0])
+                (when (fx< i gap-start)
+                  (put-char port (integer->char (bytevector-u8-ref buffer i)))
+                  (loop (fx1+ i))))
+              (let loop ([i gap-end])
+                (when (fx< i size)
+                  (put-char port (integer->char (bytevector-u8-ref buffer i)))
+                  (loop (fx1+ i)))))
+            'replace)))
+
+(define load-file
+    (lambda (filename)
+        (set! file-name (car filename));;temp placement
+        (if (and (not (null? filename))
+                (file-exists? (car filename)))
+            (call-with-input-file (car filename)
+                (lambda (port)
+                    (set! size (fx+ start-size (port-length port)))
+                    (set! buffer (make-buffer size))
+                    (let loop ([i start-size])
+                        (when (fx< i size)
+                            (bytevector-u8-set! buffer i (char->integer (read-char port)))
+                            (loop (fx1+ i))))))
+            (set! buffer (make-bytevector start-size 0)))))
+
+(define proc-char
+    (lambda (c)
+        (cond ((= c 127) (delch))
+              ((= c 2) (move-back))
+              ((= c 6) (move-forward))
+              ((= c 5) (move-gap (fx- (line-end gap-end) gap-end)))
+              ((= c 1) (move-gap (fx- (line-start gap-start) gap-start)))
+              ((= c 16) (move-gap (fx- (move-up gap-start) gap-start)))
+              ((= c 14) (move-gap (fx- (move-down gap-end 
+                                           (fx- gap-start 
+                                               (line-start gap-start))) 
+                                       gap-end)))
+              ((= c 22) (page-down))
+              ((= c 25) (page-up))
+              ((= c 23) (write-file))
+              ((= c 24) (begin (endwin) (exit)))
+              ((= c 410) (set-screen-limits))
+              ((= c 9) (insch 32) (insch 32) (insch 32) (insch 32))
+              (else (insch c)))))
+
+(scheme-start 
+    (lambda x
+        (begin (load-file x) (init) (main-loop))))
+
