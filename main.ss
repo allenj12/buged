@@ -32,7 +32,7 @@
 (define file-name "")
 (define gap-start 0)
 (define gap-end start-size)
-(define colors '(1 2 3 4 5))
+(define colors '#(1 2 3 4 5))
 
 (define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
 
@@ -130,31 +130,27 @@
         ;(lock-object buffer) ;;trying immobiles
         (bytevector-u8-set! buffer gap-start 0)
         (let loop ([i view-start]
-                   [cs colors]
-                   [stack '()])
+                   [depth -1])
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
-                (loop gap-end cs stack)
+                (loop gap-end depth)
                 (when (fx< i size)
                     (let ([char (bytevector-u8-ref buffer i)])
-                        (cond ((and (not (null? stack))
+                        (cond ((and (fx> depth -1)
                                     (or (fx= char 41) (fx= char 93) (fx= char 125)))
-                                (color-set (car stack) 0)
+                                (color-set (vector-ref colors (fxmod depth (vector-length colors))) 0)
                                 (addch char)
-                                (loop (fx1+ i) cs (cdr stack)))
+                                (loop (fx1+ i) (fx1- depth)))
                             ((or (fx= char 40) (fx= char 91) (fx= char 123))
-                                (color-set (car cs) 0)
+                                (color-set 
+                                    (vector-ref colors (fxmod (fx1+ depth) 
+                                                              (vector-length colors))) 
+                                0)
                                 (addch char)
-                                (loop (fx1+ i) (cdr cs) (cons (car cs) stack)))
+                                (loop (fx1+ i) (fx1+ depth)))
                             (else (color-set 0 0) 
                                   (addch char)
-                                  (loop (fx1+ i) cs stack)))))))
-        ;(color-set 3 0)
-        ;(printw (fx+ view-start (object->reference-address buffer)))
-        ;(color-set 4 0)
-        ;(printw (fx+ gap-end (object->reference-address buffer)))
-        ;(unlock-object buffer)
-        ))
+                                  (loop (fx1+ i) depth)))))))))
 
 (define curs-yx
     (lambda ()
@@ -217,7 +213,7 @@
         (init-pair 3 3 -1)
         (init-pair 4 4 -1)
         (init-pair 5 5 -1)
-        (set-cdr! (cddddr colors) colors)
+        ;(set-cdr! (cddddr colors) colors)
         (set-screen-limits)))
 
 (define write-file
@@ -254,6 +250,7 @@
         (cond ((= c 127) (delch))
               ((= c 2) (move-back))
               ((= c 6) (move-forward))
+              ((= c 12) (set! view-start (center gap-start (fx/ max-rows 2))))
               ((= c 5) (move-gap (fx- (line-end gap-end) gap-end)))
               ((= c 1) (move-gap (fx- (line-start gap-start) gap-start)))
               ((= c 16) (move-gap (fx- (move-up gap-start) gap-start)))
