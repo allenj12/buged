@@ -20,6 +20,9 @@
 (define move (foreign-procedure #f "move" (int int) void))
 (define addch (foreign-procedure #f "addch" (int) void))
 (define printw (foreign-procedure #f "printw" (uptr) void))
+(define getcurx (foreign-procedure #f "getcurx" (uptr) int))
+(define getcury (foreign-procedure #f "getcury" (uptr) int))
+(define pair-content (foreign-procedure #f "pair_content" (uptr uptr) void))
 
 ;;-1 will be initialized on init
 (define start-size 5)
@@ -32,7 +35,10 @@
 (define file-name "")
 (define gap-start 0)
 (define gap-end start-size)
-(define colors '#(1 2 3 4 5))
+(define colors '#(1 2 3 4 5 0))
+(define highlight-colors '#(6 7 8 9 10 33))
+(define highlight-color 6)
+(define mark #f)
 
 (define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
 
@@ -136,6 +142,19 @@
                       ((fx= (bytevector-u8-ref buffer i) 10) (loop (fx1+ i) (fx1+ counter)))
                       (else (loop (fx1+ i) counter)))))))
 
+(define fx-between
+    (lambda (x m n)
+      (or (and (fx<= x n)
+               (fx>= x m))
+          (and (fx>= x n)
+               (fx<= x m)))))
+
+(define bound-idx
+    (lambda (idx)
+        (if (fx>= idx gap-end)
+            (fx- idx (fx- gap-end gap-start))
+            idx)))
+
 (define draw 
     (lambda ()
         (define ve (view-end))
@@ -145,23 +164,26 @@
                      (fx< i gap-end))
                 (loop gap-end depth)
                 (when (fx< i ve)
-                    (let ([char (bytevector-u8-ref buffer i)])
+                    (let ([char (bytevector-u8-ref buffer i)]
+                          [colors (if (and mark 
+                                       (fx-between (bound-idx i) gap-start mark))
+                                      highlight-colors
+                                      colors)])
                         (cond ((and (fx> depth -1)
                                     (or (fx= char 41) (fx= char 93) (fx= char 125)))
-                                (color-set (vector-ref colors (fxmod depth (vector-length colors))) 0)
+                                (color-set (vector-ref colors 
+                                                       (fxmod depth (fx1- (vector-length colors)))) 0)
                                 (addch char)
                                 (loop (fx1+ i) (fx1- depth)))
                             ((or (fx= char 40) (fx= char 91) (fx= char 123))
-                                (color-set 
-                                    (vector-ref colors (fxmod (fx1+ depth) 
-                                                              (vector-length colors))) 
-                                0)
+                                (color-set (vector-ref colors (fxmod (fx1+ depth)
+                                                                     (fx1- (vector-length colors)))) 0)
                                 (addch char)
                                 (loop (fx1+ i) (fx1+ depth)))
-                            (else (color-set 0 0) 
+                            (else (color-set (vector-ref colors (fx1- (vector-length colors))) 0) 
                                   (addch char)
                                   (loop (fx1+ i) depth)))))))))
-
+; m   i   gs  ge 
 (define curs-yx
     (lambda ()
         (values
@@ -214,6 +236,15 @@
         (init-pair 3 3 -1)
         (init-pair 4 4 -1)
         (init-pair 5 5 -1)
+     
+        (init-pair 6 1 3)
+        (init-pair 7 2 3)
+        (init-pair 8 3 3)
+        (init-pair 9 4 3)
+        (init-pair 10 5 3)
+
+        (init-pair 33 -1 3)
+
         (set-screen-limits)))
 
 (define write-file
@@ -307,6 +338,7 @@
     ((ctrl y) (page-up))
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
+    ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
     ((screen-resize) (set-screen-limits))
     ((tab) (insch 32) (insch 32) (insch 32) (insch 32))
     ((\() (insch (char->integer #\()) (insch (char->integer #\))) (move-back)))
