@@ -37,7 +37,6 @@
 (define gap-end start-size)
 (define colors '#(1 2 3 4 5 0))
 (define highlight-colors '#(6 7 8 9 10 33))
-(define highlight-color 6)
 (define mark #f)
 
 (define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
@@ -131,6 +130,24 @@
         (set! gap-start (fxmax (fx1- gap-start) 0))
         (bytevector-u8-set! buffer gap-start 0)))
 
+(define delete-section
+    (lambda ()
+        (if (fx< mark gap-start)
+            (let loop ([i mark])
+                (if (fx< i gap-start)
+                    (begin
+                        (bytevector-u8-set! buffer i 0)
+                        (loop (fx1+ i)))
+                    (set! gap-start mark)))
+            (let ([cap (fx+ mark (fx- gap-end gap-start))])
+                (let loop ([i gap-end])
+                    (if (fx<= i cap)
+                        (begin
+                            (bytevector-u8-set! buffer i 0)
+                            (loop (fx1+ i)))
+                        (set! gap-end i)))))
+        (set! mark #f)))
+
 (define view-end
     (lambda ()
         (let loop ([i view-start]
@@ -183,7 +200,7 @@
                             (else (color-set (vector-ref colors (fx1- (vector-length colors))) 0) 
                                   (addch char)
                                   (loop (fx1+ i) depth)))))))))
-; m   i   gs  ge 
+
 (define curs-yx
     (lambda ()
         (values
@@ -320,7 +337,7 @@
                   #'((else (insch c))))))])))
 
 (define-bindings proc-char
-    ((backspace) (delch))
+    ((backspace) (if mark (delete-section) (delch)))
     ((ctrl d) (when (fx< gap-end size) 
                     (bytevector-u8-set! buffer gap-end 0)
                     (set! gap-end (fx1+ gap-end))))
@@ -339,6 +356,7 @@
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
     ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
+;    ((ctrl k) )
     ((screen-resize) (set-screen-limits))
     ((tab) (insch 32) (insch 32) (insch 32) (insch 32))
     ((\() (insch (char->integer #\()) (insch (char->integer #\))) (move-back)))
