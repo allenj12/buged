@@ -130,7 +130,7 @@
         (set! gap-start (fxmax (fx1- gap-start) 0))
         (bytevector-u8-set! buffer gap-start 0)))
 
-(define delete-section
+(define delete-selection
     (lambda ()
         (if (fx< mark gap-start)
             (let loop ([i mark])
@@ -145,8 +145,20 @@
                         (begin
                             (bytevector-u8-set! buffer i 0)
                             (loop (fx1+ i)))
-                        (set! gap-end i)))))
-        (set! mark #f)))
+                        (set! gap-end i)))))))
+
+(define copy-selection
+    (lambda ()
+        (define bsize (fxabs (fx- mark gap-start)))
+        (define bv (make-buffer bsize))
+        (if (fx< mark gap-start)
+            (bytevector-copy! buffer mark bv 0 bsize)
+            (bytevector-copy! buffer gap-end bv 0 bsize))
+        (open-process-ports (string-append  "printf \""
+                                            (bytevector->string bv (make-transcoder (utf-8-codec))) 
+                                            "\" | pbcopy")
+                            'block
+                            (make-transcoder (utf-8-codec)))))
 
 (define view-end
     (lambda ()
@@ -337,7 +349,7 @@
                   #'((else (insch c))))))])))
 
 (define-bindings proc-char
-    ((backspace) (if mark (delete-section) (delch)))
+    ((backspace) (if mark (begin (delete-selection) (set! mark #f)) (delch)))
     ((ctrl d) (when (fx< gap-end size) 
                     (bytevector-u8-set! buffer gap-end 0)
                     (set! gap-end (fx1+ gap-end))))
@@ -356,7 +368,8 @@
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
     ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
-;    ((ctrl k) )
+    ((ctrl c) (when mark (copy-selection) (set! mark #f)))
+    ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((screen-resize) (set-screen-limits))
     ((tab) (insch 32) (insch 32) (insch 32) (insch 32))
     ((\() (insch (char->integer #\()) (insch (char->integer #\))) (move-back)))
