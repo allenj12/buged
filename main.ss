@@ -2,7 +2,6 @@
 (import (chezscheme))
 
 (define *curses* (load-shared-object "libcurses.dylib"))
-;(define *stdlib* (load-shared-object "libSystem.B.dylib"))
 
 (define initscr (foreign-procedure #f "initscr" () uptr))
 (define getmaxx (foreign-procedure #f "getmaxx" (uptr) int))
@@ -279,13 +278,13 @@
         (init-pair 4 4 -1)
         (init-pair 5 5 -1)
      
-        (init-pair 6 1 3)
-        (init-pair 7 2 3)
-        (init-pair 8 3 3)
-        (init-pair 9 4 3)
-        (init-pair 10 5 3)
+        (init-pair 6 1 7)
+        (init-pair 7 2 7)
+        (init-pair 8 3 7)
+        (init-pair 9 4 7)
+        (init-pair 10 5 7)
 
-        (init-pair 33 -1 3)
+        (init-pair 33 -1 7)
 
         (set-screen-limits)))
 
