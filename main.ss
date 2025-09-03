@@ -264,14 +264,16 @@
                     (map (lambda (pair)
                             (let ([b (syntax->datum (car pair))])
                                 (cons 
-                                (cond
-                                    ((memq 'ctrl b) (char-
-                                                        (char-upcase
-                                                            (string-ref
-                                                                (symbol->string (car (last-pair b)))
-                                                                0))
-                                                      #\@))
-                                    (else (keymapping (car (last-pair b))))) (cdr pair))))
+                                    (cond
+                                        ((memq 'ctrl b) 
+                                         (char-
+                                             (char-upcase
+                                                 (string-ref
+                                                     (symbol->string (car (last-pair b)))
+                                                     0))
+                                              #\@))
+                                        (else (keymapping (car (last-pair b)))))
+                                    (cdr pair))))
                     #'(pairs ...))])))
 
 (define-syntax define-bindings
@@ -288,6 +290,9 @@
 
 (define-bindings proc-char
     ((backspace) (delch))
+    ((ctrl d) (when (fx< gap-end size) 
+                    (bytevector-u8-set! buffer gap-end 0)
+                    (set! gap-end (fx1+ gap-end))))
     ((ctrl b) (move-back))
     ((ctrl f) (move-forward))
     ((ctrl l) (set! view-start (center gap-start (fx/ max-rows 2))))
@@ -303,7 +308,8 @@
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
     ((screen-resize) (set-screen-limits))
-    ((tab) (insch 32) (insch 32) (insch 32) (insch 32)))
+    ((tab) (insch 32) (insch 32) (insch 32) (insch 32))
+    ((\() (insch (char->integer #\()) (insch (char->integer #\))) (move-back)))
 
 (scheme-start 
     (lambda x
