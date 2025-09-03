@@ -245,28 +245,66 @@
                             (loop (fx1+ i))))))
             (set! buffer (make-bytevector start-size 0)))))
 
-(define proc-char
+
+(meta define keymapping
     (lambda (c)
-        (cond ((= c 127) (delch))
-              ((= c 2) (move-back))
-              ((= c 6) (move-forward))
-              ((= c 12) (set! view-start (center gap-start (fx/ max-rows 2))))
-              ((= c 5) (move-gap (fx- (line-end gap-end) gap-end)))
-              ((= c 1) (move-gap (fx- (line-start gap-start) gap-start)))
-              ((= c 16) (move-gap (fx- (move-up gap-start) gap-start)))
-              ((= c 14) (move-gap (fx- (move-down gap-end 
-                                           (fx- gap-start 
-                                               (line-start gap-start))) 
-                                       gap-end)))
-              ((= c 22) (page-down))
-              ((= c 25) (page-up))
-              ((= c 23) (write-file))
-              ((= c 24) (begin (endwin) (exit)))
-              ((= c 410) (set-screen-limits))
-              ((= c 9) (insch 32) (insch 32) (insch 32) (insch 32))
-              (else (insch c)))))
+        (case c
+            (backspace 127)
+            (tab 9)
+            (screen-resize 410)
+            (else (char->integer 
+                    (string-ref (symbol->string c)
+                                0))))))
+
+
+(meta define proc-binding
+        (lambda (stx)
+            (syntax-case stx ()
+                [(pairs ...)
+                    (map (lambda (pair)
+                            (let ([b (syntax->datum (car pair))])
+                                (cons 
+                                (cond
+                                    ((memq 'ctrl b) (char-
+                                                        (char-upcase
+                                                            (string-ref
+                                                                (symbol->string (car (last-pair b)))
+                                                                0))
+                                                      #\@))
+                                    (else (keymapping (car (last-pair b))))) (cdr pair))))
+                    #'(pairs ...))])))
+
+(define-syntax define-bindings
+    (lambda (stx)                         
+        (syntax-case stx ()
+        [(_ fn-name (binding commands ...) ...)
+        #`(define fn-name
+            (lambda (c)
+                #,(append 
+                    (cons #'case 
+                        (cons #'c
+                            (proc-binding #'((binding commands ...) ...))))
+                  #'((else (insch c))))))])))
+
+(define-bindings proc-char
+    ((backspace) (delch))
+    ((ctrl b) (move-back))
+    ((ctrl f) (move-forward))
+    ((ctrl l) (set! view-start (center gap-start (fx/ max-rows 2))))
+    ((ctrl e) (move-gap (fx- (line-end gap-end) gap-end)))
+    ((ctrl a) (move-gap (fx- (line-start gap-start) gap-start)))
+    ((ctrl p) (move-gap (fx- (move-up gap-start) gap-start)))
+    ((ctrl n) (move-gap (fx- (move-down gap-end
+                                       (fx- gap-start
+                                           (line-start gap-start)))
+                              gap-end)))
+    ((ctrl v) (page-down))
+    ((ctrl y) (page-up))
+    ((ctrl w) (write-file))
+    ((ctrl x) (begin (endwin) (exit)))
+    ((screen-resize) (set-screen-limits))
+    ((tab) (insch 32) (insch 32) (insch 32) (insch 32)))
 
 (scheme-start 
     (lambda x
         (begin (load-file x) (init) (main-loop))))
-
