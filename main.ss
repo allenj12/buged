@@ -160,6 +160,19 @@
                             'block
                             (make-transcoder (utf-8-codec)))))
 
+;;since we are using pbcopy with copy above
+;;we are going to define a custom paste to avoid
+;;the extra parens we process
+(define paste
+    (lambda ()
+        (let-values ([(a out b c) (open-process-ports "pbpaste"
+                                                      'block 
+                                                       (make-transcoder (utf-8-codec)))])
+            (let loop ([c (get-char out)])
+                (when (not (eq? c #!eof))
+                    (insch (char->integer c))
+                    (loop (get-char out)))))))
+
 (define view-end
     (lambda ()
         (let loop ([i view-start]
@@ -370,6 +383,7 @@
     ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
+    ((ctrl u) (paste))
     ((screen-resize) (set-screen-limits))
     ((tab) (insch 32) (insch 32) (insch 32) (insch 32))
     ((\() (insch (char->integer #\()) (insch (char->integer #\))) (move-back)))
