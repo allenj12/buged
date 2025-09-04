@@ -175,13 +175,16 @@
 (define view-end
     (lambda ()
         (let loop ([i view-start]
-                   [counter 0])
+                   [counter 0]
+                   [lc 0])
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
-                (loop gap-end counter)
+                (loop gap-end counter lc)
                 (cond ((or (fx>= i size) (fx>= counter max-rows)) i)
-                      ((fx= (bytevector-u8-ref buffer i) 10) (loop (fx1+ i) (fx1+ counter)))
-                      (else (loop (fx1+ i) counter)))))))
+                      ((or (fx= (bytevector-u8-ref buffer i) 10)
+                           (fx>= lc (fx1- max-cols)))
+                       (loop (fx1+ i) (fx1+ counter) 0))
+                      (else (loop (fx1+ i) counter (fx1+ lc))))))))
 
 (define fx-between
     (lambda (x m n)
@@ -241,7 +244,7 @@
 
 (define bound-yx
     (lambda (y x)
-        (values y (fxmod x max-cols))))
+         (values y (fxmod x max-cols))))
 
 (define render 
     (lambda () 
