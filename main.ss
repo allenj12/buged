@@ -231,7 +231,7 @@
 (define curs-yx
     (lambda ()
         (values
-            (let loop ([i (line-end view-start)]
+            (let loop ([i view-start]
                        [counter 0]
                        [lc 0])
                 (if (fx< i gap-start)
