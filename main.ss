@@ -229,15 +229,27 @@
     (lambda ()
         (values
             (let loop ([i (line-end view-start)]
-                       [counter 0])
+                       [counter 0]
+                       [lc 0])
                 (if (fx< i gap-start)
-                    (loop (line-end (fx1+ i)) (fx1+ counter))
+                    (if (or (= (bytevector-u8-ref buffer i) 10)
+                            (fx>= lc (fx1- max-cols)))
+                        (loop (fx1+ i) (fx1+ counter) 0)
+                        (loop (fx1+ i) counter (fx1+ lc)))
                     counter))
             (fx- gap-start (line-start gap-start)))))
 
+(define bound-yx
+    (lambda (y x)
+        (values y (fxmod x max-cols))))
+
 (define render 
     (lambda () 
-        (clear) (draw) (call-with-values curs-yx move) (refresh)))
+        (clear) 
+        (draw)
+        (let-values ([(y x) (call-with-values curs-yx bound-yx)])
+            (move y x))
+        (refresh)))
 
 (define center
     (lambda (s counter)
