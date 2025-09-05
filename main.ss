@@ -1,6 +1,8 @@
 #!chezscheme
 (import (chezscheme))
 
+(suppress-greeting #t)
+
 (define *curses* (load-shared-object "libcurses.dylib"))
 
 ;;TODO double check types to see if we are ignoring returns or not
