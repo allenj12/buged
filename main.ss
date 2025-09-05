@@ -153,9 +153,9 @@
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
-        (open-process-ports (string-append  "printf '"
+        (open-process-ports (string-append  "{ cat <<-'EOF'\n"
                                             (bytevector->string bv (make-transcoder (utf-8-codec))) 
-                                            "' | pbcopy")
+                                            "\nEOF\n } | perl -0777 -pe 'chop' | pbcopy")
                             'block
                             (make-transcoder (utf-8-codec)))))
 
