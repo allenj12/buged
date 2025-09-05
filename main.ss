@@ -3,6 +3,7 @@
 
 (define *curses* (load-shared-object "libcurses.dylib"))
 
+;;TODO double check types to see if we are ignoring returns or not
 (define initscr (foreign-procedure #f "initscr" () uptr))
 (define getmaxx (foreign-procedure #f "getmaxx" (uptr) int))
 (define getmaxy (foreign-procedure #f "getmaxy" (uptr) int))
@@ -14,17 +15,21 @@
 (define noecho (foreign-procedure #f "noecho" () void))
 (define getch (foreign-procedure #f "getch" () int))
 (define endwin (foreign-procedure #f "endwin" () void))
-(define refresh (foreign-procedure #f "refresh" () void))
-(define clear (foreign-procedure #f "clear" () void))
+(define wnoutrefresh (foreign-procedure #f "wnoutrefresh" (uptr) void))
+(define doupdate (foreign-procedure #f "doupdate" () void))
+(define erase (foreign-procedure #f "erase" () void))
+(define curs-set (foreign-procedure #f "curs_set" (int) void))
 (define move (foreign-procedure #f "move" (int int) void))
 (define addch (foreign-procedure #f "addch" (int) void))
-(define printw (foreign-procedure #f "printw" (uptr) void))
 (define getcurx (foreign-procedure #f "getcurx" (uptr) int))
 (define getcury (foreign-procedure #f "getcury" (uptr) int))
-(define pair-content (foreign-procedure #f "pair_content" (uptr uptr) void))
+;(define pair-content (foreign-procedure #f "pair_content" (uptr uptr) void))
+;(define refresh (foreign-procedure #f "refresh" () void))
+;(define printw (foreign-procedure #f "printw" (uptr) void))
+;(define clear (foreign-procedure #f "clear" () void))
 
 ;;-1 will be initialized on init
-(define start-size 5)
+(define start-size 100)
 (define size start-size)
 (define buffer -1)
 (define view-start 0)
@@ -248,11 +253,14 @@
 
 (define render 
     (lambda () 
-        (clear) 
+        (curs-set 0)
+        (erase)
         (draw)
         (let-values ([(y x) (call-with-values curs-yx bound-yx)])
             (move y x))
-        (refresh)))
+        (wnoutrefresh stdscr)
+        (doupdate)
+        (curs-set 1)))
 
 (define center
     (lambda (s counter)
