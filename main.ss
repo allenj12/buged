@@ -153,9 +153,9 @@
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
-        (open-process-ports (string-append  "printf \""
+        (open-process-ports (string-append  "printf '"
                                             (bytevector->string bv (make-transcoder (utf-8-codec))) 
-                                            "\" | pbcopy")
+                                            "' | pbcopy")
                             'block
                             (make-transcoder (utf-8-codec)))))
 
