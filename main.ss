@@ -464,7 +464,7 @@
 
                             (put-char port (integer->char (bytevector-u32-native-ref wchar 0)))
                             (loop (fx+ i csize))))))))
-                'replace)))
+                'truncate)))
 
 (define load-file 
     (lambda (filename)
