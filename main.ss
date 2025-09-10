@@ -290,19 +290,26 @@
                     (insch c)
                     (loop (get-char out)))))))
 
-(define view-end
+(define-with-state view-end ([wchar (make-bytevector 4 0)]
+                             [mbstate (make-bytevector 128 0)])
     (lambda ()
         (let loop ([i view-start]
                    [counter 0]
                    [lc 0])
-            (cond ((and (fx>= i gap-start)
-                        (fx< i gap-end))
-                   (loop gap-end counter lc))
-                  ((or (fx>= i size) (fx>= counter max-rows)) i)
-                  ((or (fx= (utf8-ref buffer i) 10)
-                       (fx>= lc (fx1- max-cols)))
-                   (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
-                  (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx1+ lc)))))))
+            (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
+                   [utf8 (make-bytevector csize)])
+                (bytevector-copy! buffer i utf8 0 csize)
+                (mbrtowc wchar utf8 csize mbstate)
+                (cond ((and (fx>= i gap-start)
+                            (fx< i gap-end))
+                       (loop gap-end counter lc))
+                      ((or (fx>= i size) (fx>= counter max-rows)) i)
+                      ((or (fx= (utf8-ref buffer i) 10)
+                           (fx= lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness)))))))
+                       (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
+                      ((fx> lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
+                       (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 2))
+                      (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx+ lc (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))))))))
 
 (define fx-between
     (lambda (x m n)
@@ -373,11 +380,13 @@
                         (cond ((fx>= i gap-start) 
                             (values counter lc))
                             ((fx= (utf8-ref buffer i) 10)
-                            (loop (fx+ i csize) (fx1+ counter) 0))
-                            ((fx>= lc (fx1- max-cols))
-                            (loop (fx+ i csize) (fx1+ counter) (fx- lc (fx1- max-cols)))) ;;TODO:fix unicode line endings
+                             (loop (fx+ i csize) (fx1+ counter) 0))
+                            ((fx= lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
+                             (loop (fx+ i csize) (fx1+ counter) 0))
+                            ((fx> lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
+                             (loop (fx+ i csize) (fx1+ counter) 2))
                             (else 
-                            (loop (fx+ i csize) counter (fx+ lc (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness)))))))))))))
+                             (loop (fx+ i csize) counter (fx+ lc (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness)))))))))))))
 
 (define render 
     (lambda () 
