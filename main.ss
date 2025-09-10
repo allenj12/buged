@@ -244,11 +244,13 @@
 
 (define insch
     (lambda (ch)
-        (let ([ch (if (char? ch) ch (integer->char ch))])
-            (let ([csize (utf8-char-set! buffer gap-start ch)])
-                (set! gap-start (fx+ gap-start csize))
-                (when (fx>= (fx+ 4 gap-start) gap-end)
-                    (grow))))))
+        (set! gap-start (fx+ gap-start 
+                            (utf8-char-set! 
+                                buffer 
+                                gap-start
+                                (if (char? ch) ch (integer->char ch)))))
+        (when (fx>= (fx+ 4 gap-start) gap-end)
+            (grow))))
 
 (define delch
     (lambda ()
