@@ -98,6 +98,55 @@
             ((fx= (fxand b #xF8) #xF0) 4)
             (else #f))))
 
+(define-with-state utf8-char-set! ([mbstate (make-bytevector 128 0)]
+                                   [utf8 (make-bytevector 4 0)])
+    (lambda (bv i ch)
+        (bytevector-fill! mbstate 0)
+        (bytevector-fill! utf8 0)
+        (wcrtomb utf8 ch mbstate)
+        (let ([csize (utf8-size (bytevector-u8-ref utf8 0))])
+            (bytevector-copy! utf8 0 bv i csize)
+            csize)))
+
+(define-with-state utf8-char-ref ([mbstate (make-bytevector 128 0)])
+    (lambda (bv i)
+        (let* ([wchar (make-bytevector 4 0)]
+               [csize (utf8-size (bytevector-u8-ref bv i))]
+               [utf8 (make-bytevector csize)]) ;can lift up?
+                (bytevector-copy! buffer i utf8 0 csize)
+                (mbrtowc wchar utf8 csize mbstate)
+                wchar)))
+
+(define utf8-ref
+    (lambda (bv idx)
+        (let ([b (bytevector-u8-ref bv idx)])
+            (cond
+                ((fx= (fxand b #x80) 0)
+                 (bytevector-u8-ref bv idx))
+                ((fx= (fxand b #xE0) #xC0)
+                 (bytevector-u16-ref bv idx (native-endianness)))
+                ((fx= (fxand b #xF0) #xE0)
+                 (bytevector-u24-ref bv idx (native-endianness)))
+                ((fx= (fxand b #xF8) #xF0)
+                 (bytevector-u32-ref bv idx (native-endianness)))))))
+
+(define utf8-set!
+    (lambda (bv idx v)
+        (let ([b (bytevector-u8-ref bv idx)])
+            (cond
+                ((fx= (fxand b #x80) 0)
+                 (bytevector-u8-set! bv idx v))
+                ((fx= (fxand b #xE0) #xC0)
+                 (bytevector-u16-set! bv idx v (native-endianness)))
+                ((fx= (fxand b #xF0) #xE0)
+                 (bytevector-u24-set! bv idx v (native-endianness)))
+                ((fx= (fxand b #xF8) #xF0)
+                 (bytevector-u32-set! bv idx v (native-endianness)))))))
+
+(define wchar-width
+    (lambda (wchar)
+        (wcwidth (integer->char (bytevector-u32-native-ref wchar 0)))))
+
 (define back-char
     (lambda (idx)
         (if (fx<= idx 1)
@@ -193,44 +242,13 @@
                  (move-gap (fx- i gap-start))
                 (loop (move-up i) (fx1- counter))))))
 
-(define-with-state insch ([mbstate (make-bytevector 128 0)]
-                          [utf8 (make-bytevector 4 0)])
+(define insch
     (lambda (ch)
         (let ([ch (if (char? ch) ch (integer->char ch))])
-            (bytevector-fill! mbstate 0)
-            (bytevector-fill! utf8 0)
-            (wcrtomb utf8 ch mbstate)
-            (let ([csize (utf8-size (bytevector-u8-ref utf8 0))])
-                (bytevector-copy! utf8 0 buffer gap-start csize)
+            (let ([csize (utf8-char-set! buffer gap-start ch)])
                 (set! gap-start (fx+ gap-start csize))
                 (when (fx>= (fx+ 4 gap-start) gap-end)
                     (grow))))))
-
-(define utf8-ref
-    (lambda (bv idx)
-        (let ([b (bytevector-u8-ref bv idx)])
-            (cond
-                ((fx= (fxand b #x80) 0)
-                 (bytevector-u8-ref bv idx))
-                ((fx= (fxand b #xE0) #xC0)
-                 (bytevector-u16-ref bv idx (native-endianness)))
-                ((fx= (fxand b #xF0) #xE0)
-                 (bytevector-u24-ref bv idx (native-endianness)))
-                ((fx= (fxand b #xF8) #xF0)
-                 (bytevector-u32-ref bv idx (native-endianness)))))))
-
-(define utf8-set!
-    (lambda (bv idx v)
-        (let ([b (bytevector-u8-ref bv idx)])
-            (cond
-                ((fx= (fxand b #x80) 0)
-                 (bytevector-u8-set! bv idx v))
-                ((fx= (fxand b #xE0) #xC0)
-                 (bytevector-u16-set! bv idx v (native-endianness)))
-                ((fx= (fxand b #xF0) #xE0)
-                 (bytevector-u24-set! bv idx v (native-endianness)))
-                ((fx= (fxand b #xF8) #xF0)
-                 (bytevector-u32-set! bv idx v (native-endianness)))))))
 
 (define delch
     (lambda ()
@@ -290,26 +308,25 @@
                     (insch c)
                     (loop (get-char out)))))))
 
-(define-with-state view-end ([wchar (make-bytevector 4 0)]
-                             [mbstate (make-bytevector 128 0)])
+(define view-end
     (lambda ()
         (let loop ([i view-start]
                    [counter 0]
                    [lc 0])
-            (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                   [utf8 (make-bytevector csize)])
-                (bytevector-copy! buffer i utf8 0 csize)
-                (mbrtowc wchar utf8 csize mbstate)
-                (cond ((and (fx>= i gap-start)
-                            (fx< i gap-end))
-                       (loop gap-end counter lc))
-                      ((or (fx>= i size) (fx>= counter max-rows)) i)
-                      ((or (fx= (utf8-ref buffer i) 10)
-                           (fx= lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness)))))))
-                       (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
-                      ((fx> lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
-                       (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 2))
-                      (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx+ lc (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))))))))
+            (cond ((and (fx>= i gap-start)
+                        (fx< i gap-end))
+                   (loop gap-end counter lc))
+                  ((fx>= i size)
+                   size)
+                  (else (let* ([wchar (utf8-char-ref buffer i)])
+                            (cond 
+                                ((or (fx>= i size) (fx>= counter max-rows)) i)
+                                ((or (fx= (utf8-ref buffer i) 10)
+                                    (fx= lc (fx- max-cols (wchar-width wchar))))
+                                (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
+                                ((fx> lc (fx- max-cols (wchar-width wchar)))
+                                (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 2))
+                                (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx+ lc (wchar-width wchar)))))))))))
 
 (define fx-between
     (lambda (x m n)
@@ -324,9 +341,7 @@
             (fx- idx (fx- gap-end gap-start))
             idx)))
 
-(define-with-state draw ([wchar (make-bytevector 4 0)]
-                         [mbstate (make-bytevector 128 0)]
-                         [temp-array (make-bytevector 8 0)]
+(define-with-state draw ([temp-array (make-bytevector 8 0)]
                          [cchar (make-bytevector 32 0)])
     (lambda ()
         (define ve (view-end))
@@ -336,18 +351,14 @@
                      (fx< i gap-end))
                 (loop gap-end depth)
                 (when (fx< i ve)
-                    (bytevector-fill! mbstate 0)
-                    (bytevector-fill! wchar 0)
                     (bytevector-fill! cchar 0)
                     (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                           [utf8 (make-bytevector csize)]
+                           [wchar (utf8-char-ref buffer i)]
                            [colors (if (and mark 
                                             (fx-between (bound-idx i) gap-start mark))
                                       highlight-colors
                                       colors)]
                            [char (bytevector-u32-ref wchar 0 (native-endianness))])
-                        (bytevector-copy! buffer i utf8 0 csize)
-                        (mbrtowc wchar utf8 csize mbstate)
                         (let ([char (bytevector-u32-ref wchar 0 (native-endianness))])
                             (bytevector-u32-native-set! temp-array 0 char)
                             (cond ((and (fx> depth -1)
@@ -365,8 +376,7 @@
                                     (add-wch cchar)
                                     (loop (fx+ i csize) depth))))))))))
 
-(define-with-state curs-yx ([wchar (make-bytevector 4 0)]
-                            [mbstate (make-bytevector 128 0)])
+(define curs-yx
     (lambda ()
         (let loop ([i view-start]
                     [counter 0]
@@ -374,19 +384,17 @@
             (if (fx>= i gap-start)
                 (values counter lc)
                 (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                       [utf8 (make-bytevector csize)])
-                    (bytevector-copy! buffer i utf8 0 csize)
-                    (mbrtowc wchar utf8 csize mbstate)
+                       [wchar (utf8-char-ref buffer i)])
                         (cond ((fx>= i gap-start) 
                             (values counter lc))
                             ((fx= (utf8-ref buffer i) 10)
                              (loop (fx+ i csize) (fx1+ counter) 0))
-                            ((fx= lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
+                            ((fx= lc (fx- max-cols (wchar-width wchar)))
                              (loop (fx+ i csize) (fx1+ counter) 0))
-                            ((fx> lc (fx- max-cols (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness))))))
+                            ((fx> lc (fx- max-cols (wchar-width wchar)))
                              (loop (fx+ i csize) (fx1+ counter) 2))
                             (else 
-                             (loop (fx+ i csize) counter (fx+ lc (wcwidth (integer->char (bytevector-u32-ref wchar 0 (native-endianness)))))))))))))
+                             (loop (fx+ i csize) counter (fx+ lc (wchar-width wchar))))))))))
 
 (define render 
     (lambda () 
@@ -412,15 +420,12 @@
 
 (define-with-state main-loop ([wint (make-bytevector 4 0)])
     (lambda ()
-        (when #t
-            (begin
-                (render)
-                (bytevector-fill! wint 0);;needed?
-                (get-wch wint)
-                (proc-char (bytevector-u32-native-ref wint 0))
-                (check-view)
-                (main-loop))
-            (endwin))))
+        (render)
+        (bytevector-fill! wint 0);;needed?
+        (get-wch wint)
+        (proc-char (bytevector-u32-native-ref wint 0))
+        (check-view)
+        (main-loop)))
  
 (define set-screen-limits 
     (lambda () 
@@ -456,23 +461,15 @@
         (lambda ()
           (call-with-output-file file-name
             (lambda (port)
-              (let ([wchar (make-bytevector 4 0)]
-                    [mbstate (make-bytevector 128 0)])
                 (let loop ([i 0])
                     (if (and (fx>= i gap-start)
                              (fx< i gap-end))
                         (loop gap-end)
                     (when (fx< i size)
                         (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                               [utf8 (make-bytevector csize)])
-                            (bytevector-fill! mbstate 0)
-                            (bytevector-fill! wchar 0)
-
-                            (bytevector-copy! buffer i utf8 0 csize)
-                            (mbrtowc wchar utf8 csize mbstate)
-
+                               [wchar (utf8-char-ref buffer i)])
                             (put-char port (integer->char (bytevector-u32-native-ref wchar 0)))
-                            (loop (fx+ i csize))))))))
+                            (loop (fx+ i csize)))))))
                 'truncate)))
 
 (define load-file 
@@ -482,19 +479,12 @@
                  (file-exists? (car filename)))
                 (call-with-input-file (car filename)
                     (lambda (port)
-                        (let ([mbstate (make-bytevector 128 0)]
-                              [utf8 (make-bytevector 4 0)])
-                            (set! size (fx+ start-size (port-length port)))
-                            (set! buffer (make-buffer size))
-                            (let loop ([ch (read-char port)]
-                                       [i start-size])
-                                (when (not (eq? ch #!eof))
-                                    (bytevector-fill! mbstate 0)
-                                    (bytevector-fill! utf8 0)
-                                    (wcrtomb utf8 ch mbstate)
-                                    (let ([csize (utf8-size (bytevector-u8-ref utf8 0))])
-                                        (bytevector-copy! utf8 0 buffer i csize)
-                                        (loop (read-char port) (fx+ i csize))))))))
+                        (set! size (fx+ start-size (port-length port)))
+                        (set! buffer (make-buffer size))
+                        (let loop ([ch (read-char port)]
+                                   [i start-size])
+                            (when (not (eq? ch #!eof))
+                                (loop (read-char port) (fx+ i (utf8-char-set! buffer i ch)))))))
             (set! buffer (make-bytevector start-size 0)))))
 
 
