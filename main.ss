@@ -333,24 +333,28 @@
             (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))
                         (fx+ bv-i (utf8-size (bytevector-u8-ref bv bv-i)))))))))
 
-(define find-match
-    (lambda ()
-        (define bsize (fxabs (fx- mark gap-start)))
-        (define bv (make-buffer bsize))
-        (if (fx< mark gap-start)
-            (bytevector-copy! buffer mark bv 0 bsize)
-            (bytevector-copy! buffer gap-end bv 0 bsize))
-            (delete-selection)
+(define-with-state find-match ([bv '()]
+                               [bsize 0])
+    (lambda (replace?)
+        (when mark
+            (set! bsize (fxabs (fx- mark gap-start)))
+            (set! bv (make-buffer bsize))
+            (if (fx< mark gap-start)
+                (bytevector-copy! buffer mark bv 0 bsize)
+                (bytevector-copy! buffer gap-end bv 0 bsize))
+            (delete-selection))
             (let loop ([i gap-end])
                 (cond 
                     ((fx>= i size)
-                     gap-start)
-                    ((and (fx>= i gap-start)
-                          (fx< i gap-end))
-                     (loop gap-end))
+                     #f)
+                    ;not needed if starting from gap-end
+                    ;((and (fx>= i gap-start)
+                    ;      (fx< i gap-end))
+                    ; (loop gap-end))
                     ((buffer-match? i bv)
                      (move-gap (fx- (fx+ i (bytevector-length bv)) gap-end))
-                     (set! mark (fx- i (fx- gap-end gap-start))))
+                     (set! mark (if replace? (fx- i (fx- gap-end gap-start))
+                                             #f)))
                     (else
                      (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))
 
@@ -609,7 +613,8 @@
     ((ctrl x) (begin (endwin) (exit)))
     ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
     ((ctrl g) (when mark (jump-to)))
-    ((ctrl q) (when mark (find-match)))
+    ((ctrl q) (find-match #f))
+    ((ctrl r) (find-match #t))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl u) (paste))
