@@ -369,7 +369,7 @@
                     (bytevector-copy! buffer gap-end bv 0 bsize))
                 (set! cmd (utf8->string bv))
                 (delete-selection)))
-        (when cmd
+        (when (not (null? cmd))
             (set! mark gap-start)
             (let-values ([(a out b c) (open-process-ports cmd
                                                           'block 
