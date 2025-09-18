@@ -321,6 +321,39 @@
                         (else
                          (loop ln (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))))
 
+(define buffer-match?
+    (lambda (idx bv)
+        (let loop ([i idx]
+                   [bv-i 0])
+        (cond
+            ((fx>= bv-i (bytevector-length bv)) #t)
+            ((fx>= i size) #f)
+            ((not (fx= (utf8-ref buffer i) (utf8-ref bv bv-i)))
+             #f)
+            (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))
+                        (fx+ bv-i (utf8-size (bytevector-u8-ref bv bv-i)))))))))
+
+(define find-match
+    (lambda ()
+        (define bsize (fxabs (fx- mark gap-start)))
+        (define bv (make-buffer bsize))
+        (if (fx< mark gap-start)
+            (bytevector-copy! buffer mark bv 0 bsize)
+            (bytevector-copy! buffer gap-end bv 0 bsize))
+            (delete-selection)
+            (let loop ([i gap-end])
+                (cond 
+                    ((fx>= i size)
+                     gap-start)
+                    ((and (fx>= i gap-start)
+                          (fx< i gap-end))
+                     (loop gap-end))
+                    ((buffer-match? i bv)
+                     (move-gap (fx- (fx+ i (bytevector-length bv)) gap-end))
+                     (set! mark (fx- i (fx- gap-end gap-start))))
+                    (else
+                     (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))
+
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
 ;;the extra parens we process
@@ -576,6 +609,7 @@
     ((ctrl x) (begin (endwin) (exit)))
     ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
     ((ctrl g) (when mark (jump-to)))
+    ((ctrl q) (when mark (find-match)))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl u) (paste))
