@@ -574,7 +574,7 @@
     ((ctrl y) (page-up))
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
-    ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
+    ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
     ((ctrl g) (when mark (jump-to)))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
