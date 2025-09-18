@@ -26,19 +26,13 @@
 (define getcury (foreign-procedure #f "getcury" (uptr) int))
 
 (define setlocale (foreign-procedure #f "setlocale" (int string) string))
+(define sraise (foreign-procedure #f "raise" (int) void))
 (define get-wch (foreign-procedure #f "get_wch" (u8*) int))
 (define setcchar (foreign-procedure #f "setcchar" (u8* u8* unsigned-int short uptr) int))
 (define add-wch (foreign-procedure #f "add_wch" (u8*) int))
 (define wcrtomb (foreign-procedure #f "wcrtomb" (u8* wchar_t u8*) size_t))
 (define mbrtowc (foreign-procedure #f "mbrtowc" (u8* u8* size_t u8*) size_t))
 (define wcwidth (foreign-procedure #f "wcwidth" (wchar_t) int))
-
-;mbrtowc(&wc, ptr, len, &state);
-;wcrtomb(mb, wc, &ps);
-;(define pair-content (foreign-procedure #f "pair_content" (uptr uptr) void))
-;(define refresh (foreign-procedure #f "refresh" () void))
-;(define printw (foreign-procedure #f "printw" (uptr) void))
-;(define clear (foreign-procedure #f "clear" () void))
 
 ;;-1 will be initialized on init
 (define start-size 50)
@@ -554,6 +548,7 @@
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl u) (paste))
     ((screen-resize) (set-screen-limits))
+    ((ctrl z) (sraise 18))
     ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
     ((\() (insch #\() (insch #\)) (move-back)))
 
