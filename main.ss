@@ -631,7 +631,7 @@
     ((ctrl v) (page-down))
     ((ctrl y) (page-up))
     ((ctrl w) (write-file))
-    ((ctrl x) (begin (endwin) (exit)))
+    ((ctrl x) (endwin) (exit))
     ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
     ((ctrl g) (when mark (jump-to)))
     ((ctrl q) (find-match #f))
@@ -643,7 +643,9 @@
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (sraise 18))
     ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
-    ((\() (insch #\() (insch #\)) (move-back)))
+    ((\() (insch #\() (insch #\)) (move-back))
+    ((\[) (insch #\[) (insch #\]) (move-back))
+    ((\{) (insch #\{) (insch #\}) (move-back)))
 
 (scheme-start 
     (lambda x
