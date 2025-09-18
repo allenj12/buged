@@ -7,8 +7,24 @@
 brew install ncurses chez
 ```
 ## Install
-* git clone...
-* ./build.ss
-* note boot directory 'find /opt/homebrew -name petite.boot'
-* cp main.boot {petite.boot dir}/buged.boot
-* ln -s {petite-path} {petite-folder}/buged
+``` sh 
+./build.ss
+```
+``` sh
+cp main.boot $(find /opt/homebrew -name petite.boot | sed 's/petite\.boot/buged.boot/')
+```
+``` sh
+ln -s /opt/homebrew/bin/petite /opt/homebrew/bin/buged
+```
+
+## Update
+
+``` sh
+git pull
+```
+``` sh
+./build.ss
+```
+``` sh
+cp main.boot $(find /opt/homebrew -name buged.boot)
+```
