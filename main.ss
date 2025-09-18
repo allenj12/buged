@@ -212,7 +212,7 @@
                 (if (fx= le nls)
                     s
                     (let loop ([i nls]
-                            [c 0])
+                               [c 0])
                             (if (or (fx>= c count)
                                     (fx>= i size)
                                     (fx= (utf8-ref buffer i) 10))
@@ -290,6 +290,36 @@
                                             "\nEOF\n } | perl -0777 -pe 'chop' | pbcopy")
                             'block
                             (make-transcoder (utf-8-codec)))))
+
+;;TODO: refactor move-down/move-up to handle traversing gaps so we can reuse them
+(define jump-to
+    (lambda ()
+        (define bsize (fxabs (fx- mark gap-start)))
+        (define bv (make-buffer bsize))
+        (if (fx< mark gap-start)
+            (bytevector-copy! buffer mark bv 0 bsize)
+            (bytevector-copy! buffer gap-end bv 0 bsize))
+        (let ([line-num (string->number (utf8->string bv))])
+            (when line-num
+                (delete-selection)
+                (set! mark #f)
+                (let loop ([ln line-num]
+                           [i 0])
+                    (cond 
+                        ((fx>= i size)
+                         (move-gap (fx- i (fx- gap-end gap-start) gap-start)))
+                        ((and (fx>= i gap-start)
+                              (fx< i gap-end))
+                         (loop ln gap-end))
+                        ((fx<= ln 1)
+                         (move-gap (fx- (if (fx>= i gap-start)
+                                            (fx- i (fx- gap-end gap-start))
+                                            i)
+                                        gap-start)))
+                        ((fx= (bytevector-u8-ref buffer i) 10)
+                         (loop (fx1- ln) (fx1+ i)))
+                        (else
+                         (loop ln (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))))
 
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
@@ -381,8 +411,9 @@
                 (values counter lc)
                 (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                        [wchar (utf8-char-ref buffer i)])
-                        (cond ((fx>= i gap-start) 
-                            (values counter lc))
+                        (cond 
+                            ((fx>= i gap-start) 
+                             (values counter lc))
                             ((fx= (utf8-ref buffer i) 10)
                              (loop (fx+ i csize) (fx1+ counter) 0))
                             ((fx= lc (fx- max-cols (wchar-width wchar)))
@@ -544,6 +575,7 @@
     ((ctrl w) (write-file))
     ((ctrl x) (begin (endwin) (exit)))
     ((ctrl ^) (if mark (set! mark #f) (set! mark gap-start)))
+    ((ctrl g) (when mark (jump-to)))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl u) (paste))
