@@ -343,20 +343,41 @@
                 (bytevector-copy! buffer mark bv 0 bsize)
                 (bytevector-copy! buffer gap-end bv 0 bsize))
             (delete-selection))
-            (let loop ([i gap-end])
-                (cond 
-                    ((fx>= i size)
-                     #f)
-                    ;not needed if starting from gap-end
-                    ;((and (fx>= i gap-start)
-                    ;      (fx< i gap-end))
-                    ; (loop gap-end))
-                    ((buffer-match? i bv)
-                     (move-gap (fx- (fx+ i (bytevector-length bv)) gap-end))
-                     (set! mark (if replace? (fx- i (fx- gap-end gap-start))
-                                             #f)))
-                    (else
-                     (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))
+            (when bv
+                (let loop ([i gap-end])
+                    (cond 
+                        ((fx>= i size)
+                         #f)
+                        ;not needed if starting from gap-end
+                        ;((and (fx>= i gap-start)
+                        ;      (fx< i gap-end))
+                        ; (loop gap-end))
+                        ((buffer-match? i bv)
+                         (move-gap (fx- (fx+ i (bytevector-length bv)) gap-end))
+                         (set! mark (if replace? (fx- i (fx- gap-end gap-start))
+                                                 #f)))
+                        (else
+                         (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))))))))))
+
+(define-with-state execute ([cmd '()])
+    (lambda ()
+        (when mark
+            (let* ([bsize (fxabs (fx- mark gap-start))]
+                   [bv (make-buffer bsize)])
+                (if (fx< mark gap-start)
+                    (bytevector-copy! buffer mark bv 0 bsize)
+                    (bytevector-copy! buffer gap-end bv 0 bsize))
+                (set! cmd (utf8->string bv))
+                (delete-selection)))
+        (when cmd
+            (set! mark gap-start)
+            (let-values ([(a out b c) (open-process-ports cmd
+                                                          'block 
+                                                          (make-transcoder (utf-8-codec)))])
+                (let loop ([c (get-char out)])
+                    (when (not (eq? c #!eof))
+                          (insch c)
+                          (loop (get-char out))))))))
 
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
@@ -368,8 +389,8 @@
                                                        (make-transcoder (utf-8-codec)))])
             (let loop ([c (get-char out)])
                 (when (not (eq? c #!eof))
-                    (insch c)
-                    (loop (get-char out)))))))
+                      (insch c)
+                      (loop (get-char out)))))))
 
 (define view-end
     (lambda ()
@@ -615,6 +636,7 @@
     ((ctrl g) (when mark (jump-to)))
     ((ctrl q) (find-match #f))
     ((ctrl r) (find-match #t))
+    ((ctrl o) (execute))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl u) (paste))
