@@ -333,7 +333,7 @@
             (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))
                         (fx+ bv-i (utf8-size (bytevector-u8-ref bv bv-i)))))))))
 
-(define-with-state find-match ([bv '()]
+(define-with-state find-match ([bv #f]
                                [bsize 0])
     (lambda (replace?)
         (when mark
@@ -359,7 +359,7 @@
                         (else
                          (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))))))))))
 
-(define-with-state execute ([cmd '()])
+(define-with-state execute ([cmd #f])
     (lambda ()
         (when mark
             (let* ([bsize (fxabs (fx- mark gap-start))]
@@ -369,15 +369,19 @@
                     (bytevector-copy! buffer gap-end bv 0 bsize))
                 (set! cmd (utf8->string bv))
                 (delete-selection)))
-        (when (not (null? cmd))
+        (when cmd
             (set! mark gap-start)
-            (let-values ([(a out b c) (open-process-ports cmd
+            (let-values ([(in out err id) (open-process-ports cmd
                                                           'block 
                                                           (make-transcoder (utf-8-codec)))])
                 (let loop ([c (get-char out)])
                     (when (not (eq? c #!eof))
                           (insch c)
-                          (loop (get-char out))))))))
+                          (loop (get-char out))))
+                (let loop ([c (get-char err)])
+                    (when (not (eq? c #!eof))
+                          (insch c)
+                          (loop (get-char err))))))))
 
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
