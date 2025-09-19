@@ -443,22 +443,21 @@
                                       highlight-colors
                                       colors)]
                            [char (bytevector-u32-ref wchar 0 (native-endianness))])
-                        (let ([char (bytevector-u32-ref wchar 0 (native-endianness))])
-                            (bytevector-u32-native-set! temp-array 0 char)
-                            (cond ((and (fx> depth -1)
-                                        (or (fx= char 41) (fx= char 93) (fx= char 125)))
-                                    (setcchar cchar temp-array 0 (vector-ref colors 
-                                                                    (fxmod depth (fx1- (vector-length colors)))) 0)
+                        (bytevector-u32-native-set! temp-array 0 char)
+                        (cond ((and (fx> depth -1)
+                                    (or (fx= char 41) (fx= char 93) (fx= char 125)))
+                               (setcchar cchar temp-array 0 (vector-ref colors 
+                                                                (fxmod depth (fx1- (vector-length colors)))) 0)
+                               (add-wch cchar)
+                               (loop (fx+ i csize) (fx1- depth)))
+                              ((or (fx= char 40) (fx= char 91) (fx= char 123))
+                               (setcchar cchar temp-array 0 (vector-ref colors (fxmod (fx1+ depth)
+                                                                                   (fx1- (vector-length colors)))) 0)
+                               (add-wch cchar)
+                               (loop (fx+ i csize) (fx1+ depth)))
+                              (else (setcchar cchar temp-array 0 (vector-ref colors (fx1- (vector-length colors))) 0)
                                     (add-wch cchar)
-                                    (loop (fx+ i csize) (fx1- depth)))
-                                ((or (fx= char 40) (fx= char 91) (fx= char 123))
-                                    (setcchar cchar temp-array 0 (vector-ref colors (fxmod (fx1+ depth)
-                                                                                        (fx1- (vector-length colors)))) 0)
-                                    (add-wch cchar)
-                                    (loop (fx+ i csize) (fx1+ depth)))
-                                (else (setcchar cchar temp-array 0 (vector-ref colors (fx1- (vector-length colors))) 0)
-                                    (add-wch cchar)
-                                    (loop (fx+ i csize) depth))))))))))
+                                    (loop (fx+ i csize) depth)))))))))
 
 (define curs-yx
     (lambda ()
