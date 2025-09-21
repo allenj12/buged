@@ -293,7 +293,7 @@
 
 ;;TODO: refactor move-down/move-up to handle traversing gaps so we can reuse them
 (define jump-to
-    (lambda ()
+    (lambda (keep-mark?)
         (define bsize (fxabs (fx- mark gap-start)))
         (define bv (make-buffer bsize))
         (if (fx< mark gap-start)
@@ -302,7 +302,7 @@
         (let ([line-num (string->number (utf8->string bv))])
             (when line-num
                 (delete-selection)
-                (set! mark #f)
+                (when (not keep-mark?) (set! mark #f))
                 (let loop ([ln line-num]
                            [i 0])
                     (cond 
@@ -360,7 +360,7 @@
                          (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))))))))))
 
 (define-with-state execute ([cmd #f])
-    (lambda ()
+    (lambda (delete-command?)
         (when mark
             (let* ([bsize (fxabs (fx- mark gap-start))]
                    [bv (make-buffer bsize)])
@@ -368,7 +368,7 @@
                     (bytevector-copy! buffer mark bv 0 bsize)
                     (bytevector-copy! buffer gap-end bv 0 bsize))
                 (set! cmd (utf8->string bv))
-                (delete-selection)))
+                (when delete-command? (delete-selection))))
         (when cmd
             (set! mark gap-start)
             (let-values ([(in out err id) (open-process-ports cmd
@@ -587,7 +587,7 @@
                                 0))))))
 
 
-(meta define proc-binding
+(meta define non-meta-binding
         (lambda (stx)
             (syntax-case stx ()
                 [(pairs ...)
@@ -606,18 +606,41 @@
                                     (cdr pair))))
                     #'(pairs ...))])))
 
+;;assumes ascii only meta bindings
+(meta define meta-binding
+        (lambda (stx)
+            (syntax-case stx ()
+                [(pairs ...)
+                    (map (lambda (pair)
+                            (let ([b (syntax->datum (car pair))])
+                                (cons 
+                                    (char->integer
+                                         (string-ref
+                                             (symbol->string (car (last-pair b)))
+                                             0))
+                                    (cdr pair))))
+                    #'(pairs ...))])))
+
 (define-syntax define-bindings
-    (lambda (stx)                         
+    (lambda (stx)
+        (define meta? (lambda (pair) (memq 'meta (syntax->datum (car pair)))))
         (syntax-case stx ()
         [(_ fn-name (binding commands ...) ...)
         #`(define fn-name
             (lambda (c)
-                #,(append 
-                    (cons #'case 
-                        (cons #'c
-                            (proc-binding #'((binding commands ...) ...))))
-                  #'((else (insch c))))))])))
+                #,(cons #'case
+                        (cons #' c
+                            (append 
+                                (non-meta-binding 
+                                    (filter (lambda (pair) (not (meta? pair)))
+                                          #'((binding commands ...) ...)))
+                                #`((27
+                                    #,(cons #'case 
+                                        (cons #'(getch)
+                                                (meta-binding (filter meta? #'((binding commands ...) ...)))))))
+                                #'((else (insch c))))))))])))
 
+;;TODO should probably change fn flags to keywords instead of #t/#f
 (define-bindings proc-char
     ((backspace) (if mark (begin (delete-selection) (set! mark #f)) (delch)))
     ((ctrl d) (when (fx< gap-end size) 
@@ -632,17 +655,19 @@
     ((ctrl p) (move-gap (fx- (move-up gap-start) gap-start)))
     ((ctrl n) (move-gap (fx- (move-down gap-end) gap-end)))
     ((ctrl v) (page-down))
-    ((ctrl y) (page-up))
+    ((meta v) (page-up))
     ((ctrl w) (write-file))
     ((ctrl x) (endwin) (exit))
     ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
-    ((ctrl g) (when mark (jump-to)))
+    ((ctrl g) (when mark (jump-to #f)))
+    ((meta g) (when mark (jump-to #t)))
     ((ctrl q) (find-match #f))
     ((ctrl r) (find-match #t))
-    ((ctrl o) (execute))
+    ((ctrl o) (execute #t))
+    ((meta o) (execute #f))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
-    ((ctrl u) (paste))
+    ((ctrl y) (paste))
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (sraise 18))
     ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
