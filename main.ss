@@ -48,6 +48,8 @@
 (define colors '#(1 2 3 4 5 0))
 (define highlight-colors '#(6 7 8 9 10 33))
 (define mark #f)
+(define undo-list '())
+(define undo-point '())
 
 (define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
 
@@ -123,19 +125,6 @@
                  (bytevector-u24-ref bv idx (native-endianness)))
                 ((fx= (fxand b #xF8) #xF0)
                  (bytevector-u32-ref bv idx (native-endianness)))))))
-
-(define utf8-set!
-    (lambda (bv idx v)
-        (let ([b (bytevector-u8-ref bv idx)])
-            (cond
-                ((fx= (fxand b #x80) 0)
-                 (bytevector-u8-set! bv idx v))
-                ((fx= (fxand b #xE0) #xC0)
-                 (bytevector-u16-set! bv idx v (native-endianness)))
-                ((fx= (fxand b #xF0) #xE0)
-                 (bytevector-u24-set! bv idx v (native-endianness)))
-                ((fx= (fxand b #xF8) #xF0)
-                 (bytevector-u32-set! bv idx v (native-endianness)))))))
 
 (define wchar-width
     (lambda (wchar)
@@ -236,47 +225,60 @@
                  (move-gap (fx- i gap-start))
                 (loop (move-up i) (fx1- counter))))))
 
+;;TODO update this to just use string->utf8 instead.
+(define inschs
+    (lambda (chs)
+        (for-each
+            (lambda (ch)
+                (set! gap-start (fx+ gap-start 
+                                    (utf8-char-set! 
+                                        buffer 
+                                        gap-start
+                                        (if (char? ch) ch (integer->char ch)))))
+                (when (fx>= (fx+ 4 gap-start) gap-end)
+                    (grow)))
+            chs)
+        (set! undo-list (cons (list gap-start 'delch (length chs)) undo-list))
+        (set! undo-point undo-list)))
+
 (define insch
     (lambda (ch)
-        (set! gap-start (fx+ gap-start 
-                            (utf8-char-set! 
-                                buffer 
-                                gap-start
-                                (if (char? ch) ch (integer->char ch)))))
-        (when (fx>= (fx+ 4 gap-start) gap-end)
-            (grow))))
+        (inschs (list ch))))
 
 (define delch
     (lambda ()
-        (let* ([b (bytevector-u8-ref buffer (back-char gap-start))]
-               [csize (utf8-size b)])
-            (set! gap-start (fxmax (fx- gap-start csize) 0))
-            (cond
-                ((fx= (fxand b #x80) 0)
-                 (bytevector-u8-set! buffer gap-start 0))
-                ((fx= (fxand b #xE0) #xC0)
-                 (bytevector-u16-set! buffer gap-start 0 (native-endianness)))
-                ((fx= (fxand b #xF0) #xE0)
-                 (bytevector-u24-set! buffer gap-start 0 (native-endianness)))
-                ((fx= (fxand b #xF8) #xF0)
-                 (bytevector-u32-set! buffer gap-start 0 (native-endianness)))))))
+        (delete-selection (back-char gap-start))))
 
+;TODO check for one off errors
 (define delete-selection
-    (lambda ()
-        (if (fx< mark gap-start)
-            (let loop ([i mark])
-                (if (fx< i gap-start)
+    (lambda mark?
+        (let ([mark (if (null? mark?) mark (car mark?))])
+            (when (not (fx= mark gap-start))
+                (if (fx< mark gap-start)
+                    (begin 
+                        (let* ([count (fx- gap-start  mark)]
+                               [bv-store (make-bytevector count 0)])
+                            (bytevector-copy! buffer mark bv-store 0 count)
+                            (set! undo-list (cons (list mark 'insch bv-store) undo-list)))
+                        (let loop ([i mark])
+                            (if (fx< i gap-start)
+                                (begin
+                                    (bytevector-u8-set! buffer i 0)
+                                    (loop (fx1+ i)))
+                                (set! gap-start mark))))
                     (begin
-                        (bytevector-u8-set! buffer i 0)
-                        (loop (fx1+ i)))
-                    (set! gap-start mark)))
-            (let ([cap (fx+ mark (fx- gap-end gap-start))])
-                (let loop ([i gap-end])
-                    (if (fx< i cap)
-                        (begin
-                            (bytevector-u8-set! buffer i 0)
-                            (loop (fx1+ i)))
-                        (set! gap-end i)))))))
+                        (let* ([count (fx- mark gap-start)]
+                               [bv-store (make-bytevector count 0)])
+                            (bytevector-copy! buffer gap-end bv-store 0 count)
+                            (set! undo-list (cons (list gap-start 'insch bv-store) undo-list)))
+                        (let ([cap (fx+ mark (fx- gap-end gap-start))])
+                            (let loop ([i gap-end])
+                                (if (fx< i cap)
+                                    (begin
+                                        (bytevector-u8-set! buffer i 0)
+                                        (loop (fx1+ i)))
+                                    (set! gap-end i))))))
+                    (set! undo-point undo-list)))))
 
 (define copy-selection
     (lambda ()
@@ -374,14 +376,34 @@
             (let-values ([(in out err id) (open-process-ports cmd
                                                           'block 
                                                           (make-transcoder (utf-8-codec)))])
-                (let loop ([c (get-char out)])
-                    (when (not (eq? c #!eof))
-                          (insch c)
-                          (loop (get-char out))))
-                (let loop ([c (get-char err)])
-                    (when (not (eq? c #!eof))
-                          (insch c)
-                          (loop (get-char err))))))))
+                (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
+                (when (not (port-eof? err)) (inschs (string->list (get-string-all err))))))))
+
+(define undo
+    (lambda ()
+            (when (not (null? undo-point))
+                ;;marks currently not handled properly here
+                (set! mark #f)
+                (let ([pos (caar undo-point)]
+                      [type (cadar undo-point)]
+                      [arg (caddar undo-point)]
+                      [point undo-point])               
+                    (move-gap (fx- pos gap-start))
+                    (if (eq? type 'insch)
+                        (begin 
+                            (bytevector-copy! arg 0 buffer gap-start (bytevector-length arg))
+                            ;;should be safe without grow since we are explicitly in undo state
+                            (set! gap-start (fx+ gap-start (bytevector-length arg)))
+                            (set! undo-list 
+                                 (cons
+                                    (list gap-start 'delch (string-length (utf8->string arg)))
+                                    undo-list)))
+                        (let loop ([n arg]
+                                   [i gap-start])
+                            (if (fx> n 0)
+                                (loop (fx1- n) (back-char i))
+                                (delete-selection i))))
+                    (set! undo-point (cdr point))))))
 
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
@@ -390,11 +412,8 @@
     (lambda ()
         (let-values ([(a out b c) (open-process-ports "pbpaste"
                                                       'block 
-                                                       (make-transcoder (utf-8-codec)))])
-            (let loop ([c (get-char out)])
-                (when (not (eq? c #!eof))
-                      (insch c)
-                      (loop (get-char out)))))))
+                                                      (make-transcoder (utf-8-codec)))])
+            (inschs (string->list (get-string-all out))))))
 
 (define view-end
     (lambda ()
@@ -644,9 +663,7 @@
 (define-bindings proc-char
     ((backspace) (if mark (begin (delete-selection) (set! mark #f)) (delch)))
     ((ctrl d) (when (fx< gap-end size) 
-                    (let ([csize (utf8-size (bytevector-u8-ref buffer gap-end))])
-                        (utf8-set! buffer gap-end 0)
-                        (set! gap-end (fx+ gap-end csize)))))
+                    (move-forward) (delch)))
     ((ctrl b) (move-back))
     ((ctrl f) (move-forward))
     ((ctrl l) (set! view-start (center gap-start (fx/ max-rows 2))))
@@ -670,6 +687,7 @@
     ((ctrl y) (paste))
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (sraise 18))
+    ((ctrl _) (undo))
     ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
     ((\() (insch #\() (insch #\)) (move-back))
     ((\[) (insch #\[) (insch #\]) (move-back))
