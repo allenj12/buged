@@ -230,14 +230,11 @@
     (lambda (s)
         (let-values ([(ls c) (line-start-count s)])
             (if (fx>= c max-cols)
-                (let loop ([i s]
+                (let loop ([i (back-char s)]
                            [count 0])
                     (cond
                         ((fx>= count max-cols) 
-                         (let ([start (fx- i (fxmod c max-cols))])
-                               (if (utf8-size (bytevector-u8-ref buffer start))
-                                   start
-                                   (forward-char (back-char start))))) ;TODO fix alignment
+                         i) ;TODO fix alignment
                         ((fx< i 1) i)
                         (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
@@ -483,7 +480,7 @@
                    size)
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
-                                ((or (fx>= i size) (fx>= counter (fx1- max-rows))) i)
+                                ((or (fx>= i size) (fx>= counter max-rows)) i)
                                 ((or (fx= (utf8-ref buffer i) 10)
                                      (fx= lc (fx- max-cols (wchar-width wchar))))
                                  (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
