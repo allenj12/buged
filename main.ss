@@ -172,7 +172,7 @@
 
 (define forward-word
     (lambda (idx)
-        (let loop ([i (back-char idx)])
+        (let loop ([i idx])
             (if (fx>= i size)
                 i
                 (let ([cur-ch (integer->char 
@@ -224,6 +224,30 @@
                             (fx= (utf8-ref buffer i) 10))
                         i
                         (loop (forward-char i) (fx1+ c)))))))
+
+;;TODO will not display correctly currently with unicode and lots of characetrs on the same line
+(define move-up-visible
+    (lambda (s)
+        (let-values ([(ls c) (line-start-count s)])
+            (if (fx>= c max-cols)
+                (let loop ([i s]
+                           [count 0])
+                    (cond
+                        ((fx>= count max-cols) 
+                         (let ([start (fx- i (fxmod c max-cols))])
+                               (if (utf8-size (bytevector-u8-ref buffer start))
+                                   start
+                                   (forward-char (back-char start))))) ;TODO fix alignment
+                        ((fx< i 1) i)
+                        (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
+                (let-values ([(pls pc) (line-start-count (back-char ls))])
+                    (if (fx>= pc max-cols)
+                        (let loop ([i ls]
+                                   [times (fx- s ls)])
+                            (if (fx< times 1)
+                                i
+                                (loop (back-char i) (fx1- times))))
+                        (move-up s)))))))
 
 (define move-down
     (lambda (s)
@@ -459,12 +483,12 @@
                    size)
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
-                                ((or (fx>= i size) (fx>= counter max-rows)) i)
+                                ((or (fx>= i size) (fx>= counter (fx1- max-rows))) i)
                                 ((or (fx= (utf8-ref buffer i) 10)
-                                    (fx= lc (fx- max-cols (wchar-width wchar))))
-                                (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
+                                     (fx= lc (fx- max-cols (wchar-width wchar))))
+                                 (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
                                 ((fx> lc (fx- max-cols (wchar-width wchar)))
-                                (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 2))
+                                 (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 2))
                                 (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx+ lc (wchar-width wchar)))))))))))
 
 (define fx-between
@@ -550,12 +574,12 @@
     (lambda (s counter)
         (if (fx< counter 0)
             s 
-            (center (move-up s) (fx1- counter)))))
+            (center (move-up-visible s) (fx1- counter)))))
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
-            (set! view-start (line-start (center gap-start (fx/ max-rows 2)))))))
+        (when (or (fx< gap-start view-start) (fx> gap-end (view-end)))
+            (set! view-start (center gap-start (fx/ max-rows 2))))))
 
 (define-with-state main-loop ([wint (make-bytevector 4 0)])
     (lambda ()
