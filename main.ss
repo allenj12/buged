@@ -148,11 +148,39 @@
                             i)
                       (else (loop (fx1- i))))))))
 
+(define back-word
+    (lambda (idx)
+        (let loop ([i (back-char idx)])
+            (if (fx< i 1)
+                i
+                (let ([cur-ch (integer->char 
+                                  (bytevector-u32-native-ref (utf8-char-ref buffer i) 0))]
+                      [back-ch (integer->char 
+                                   (bytevector-u32-native-ref (utf8-char-ref buffer 
+                                                                             (back-char i))
+                                                              0))])
+                    (if (and (not (char-whitespace? cur-ch))
+                             (char-whitespace? back-ch))
+                        i
+                        (loop (back-char i))))))))
+
 (define forward-char
     (lambda (idx)
             (if (fx>= idx size)
                 idx
                 (fx+ idx (utf8-size (bytevector-u8-ref buffer idx))))))
+
+(define forward-word
+    (lambda (idx)
+        (let loop ([i idx]
+                   [hit-ch? #f])
+            (let* ([ch (integer->char (bytevector-u32-native-ref (utf8-char-ref buffer i) 0))]
+                   [hc? (if hit-ch? #t (not (char-whitespace? ch)))])
+                (if (or (fx>= i size)
+                        (and (char-whitespace? ch)
+                             hc?))
+                    i
+                    (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) hc?))))))
 
 (define move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
 
@@ -665,7 +693,9 @@
     ((ctrl d) (when (fx< gap-end size) 
                     (move-forward) (delch)))
     ((ctrl b) (move-back))
+    ((meta b) (move-gap (fx- (back-word gap-start) gap-start)))
     ((ctrl f) (move-forward))
+    ((meta f) (move-gap (fx- (forward-word gap-end) gap-end)))
     ((ctrl l) (set! view-start (center gap-start (fx/ max-rows 2))))
     ((ctrl e) (move-gap (fx- (line-end gap-end) gap-end)))
     ((ctrl a) (move-gap (fx- (line-start gap-start) gap-start)))
