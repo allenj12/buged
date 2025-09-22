@@ -172,15 +172,19 @@
 
 (define forward-word
     (lambda (idx)
-        (let loop ([i idx]
-                   [hit-ch? #f])
-            (let* ([ch (integer->char (bytevector-u32-native-ref (utf8-char-ref buffer i) 0))]
-                   [hc? (if hit-ch? #t (not (char-whitespace? ch)))])
-                (if (or (fx>= i size)
-                        (and (char-whitespace? ch)
-                             hc?))
-                    i
-                    (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) hc?))))))
+        (let loop ([i (back-char idx)])
+            (if (fx>= i size)
+                i
+                (let ([cur-ch (integer->char 
+                                  (bytevector-u32-native-ref (utf8-char-ref buffer i) 0))]
+                      [back-ch (integer->char 
+                                   (bytevector-u32-native-ref (utf8-char-ref buffer 
+                                                                             (back-char i))
+                                                              0))])
+                    (if (and (char-whitespace? cur-ch)
+                             (not (char-whitespace? back-ch)))
+                        i
+                        (loop (forward-char i))))))))
 
 (define move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
 
