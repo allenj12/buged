@@ -204,7 +204,7 @@
                    [c 0])
             (if (and (fx> i 0)
                      (not (fx= (utf8-ref buffer (back-char i)) 10)))
-                (loop (back-char i) (fx1+ c))
+                (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i)))))
                 (values i c)))))
 
 (define line-end
@@ -223,7 +223,7 @@
                     (if (or (fx>= c count)
                             (fx= (utf8-ref buffer i) 10))
                         i
-                        (loop (forward-char i) (fx1+ c)))))))
+                        (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
 
 ;;TODO will not display correctly currently with unicode and lots of characetrs on the same line
 (define move-up-visible
@@ -233,8 +233,11 @@
                 (let loop ([i (back-char s)]
                            [count 0])
                     (cond
-                        ((fx>= count max-cols) 
-                         i) ;TODO fix alignment
+                        ((fx>= count (fx- max-cols (wchar-width (utf8-char-ref buffer i))))
+                         (let ([start (fx- i (fxmod c max-cols))])
+                             (if (utf8-size (bytevector-u8-ref buffer start))
+                                 start
+                                 (back-char start))))
                         ((fx< i 1) i)
                         (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
@@ -259,13 +262,13 @@
                                     (fx>= i size)
                                     (fx= (utf8-ref buffer i) 10))
                                 i
-                                (loop (forward-char i) (fx1+ c)))))))))
+                                (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))))
 
 (define page-down
     (lambda ()
         (move-gap (fx- view-start gap-start))
         (let loop ([i gap-end]
-                   [counter max-rows])
+                   [counter (fx1+ max-rows)])
             (if (fx= counter 0)
                  (move-gap (fx- i gap-end))
                 (loop (move-down i) (fx1- counter))))))
@@ -477,7 +480,7 @@
                         (fx< i gap-end))
                    (loop gap-end counter lc))
                   ((fx>= i size)
-                   size)
+                   (fx1+ size)) ;;+1 so that screen does not center if screen ends within view past half way
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
                                 ((or (fx>= i size) (fx>= counter max-rows)) i)
@@ -510,7 +513,7 @@
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
                 (loop gap-end depth)
-                (when (fx< i ve)
+                (when (and (fx< i size) (fx< i ve))
                     (bytevector-fill! cchar 0)
                     (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                            [wchar (utf8-char-ref buffer i)]
@@ -575,7 +578,7 @@
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (fx> gap-end (view-end)))
+        (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
             (set! view-start (center gap-start (fx/ max-rows 2))))))
 
 (define-with-state main-loop ([wint (make-bytevector 4 0)])
@@ -739,7 +742,7 @@
     ((meta o) (execute #f))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
-    ((ctrl y) (paste))
+    ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (sraise 18))
     ((ctrl _) (undo))
