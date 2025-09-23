@@ -234,10 +234,13 @@
                            [count 0])
                     (cond
                         ((fx>= count (fx- max-cols (wchar-width (utf8-char-ref buffer i))))
-                         (let ([start (fx- i (fxmod c max-cols))])
-                             (if (utf8-size (bytevector-u8-ref buffer start))
-                                 start
-                                 (back-char start))))
+                         (let repeat ([ti i]
+                                      [vis-remainder (fxmod c max-cols)])
+                             (if (fx> vis-remainder 0)
+                                 (repeat (back-char ti) 
+                                         (fx- vis-remainder 
+                                             (wchar-width (utf8-char-ref buffer (back-char ti)))))
+                                 ti)))
                         ((fx< i 1) i)
                         (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
