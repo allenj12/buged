@@ -225,7 +225,7 @@
                         i
                         (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
 
-;;TODO will not display correctly currently with unicode and lots of characetrs on the same line
+;;factor out redundant line-start-count calls with here and move-up
 (define move-up-visible
     (lambda (s)
         (let-values ([(ls c) (line-start-count s)])
@@ -245,12 +245,14 @@
                         (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
                     (if (fx>= pc max-cols)
-                        (let loop ([i ls]
-                                   [times (fx- s ls)])
-                            (if (fx< times 1)
-                                i
-                                (loop (back-char i) (fx1- times))))
-                        (move-up s)))))))
+                        (let repeat ([ti (back-char ls)]
+                                     [vis-remainder (fxmod pc max-cols)])
+                            (if (fx> vis-remainder 0)
+                                (repeat (back-char ti) 
+                                        (fx- vis-remainder
+                                             (wchar-width (utf8-char-ref buffer (back-char ti)))))
+                                ti))
+                        (line-start (move-up s))))))))
 
 (define move-down
     (lambda (s)
@@ -265,7 +267,8 @@
                                     (fx>= i size)
                                     (fx= (utf8-ref buffer i) 10))
                                 i
-                                (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))))
+                                (loop (forward-char i)
+                                      (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))))
 
 (define page-down
     (lambda ()
