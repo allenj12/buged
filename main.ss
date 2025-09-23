@@ -225,33 +225,38 @@
                         i
                         (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
 
-;;factor out redundant line-start-count calls with here and move-up
+;;TODO this needs to be refactored heavily and be made more efficient
+;;currently does handle the wrapping when using multi-width unicode
+;;Always go to the beggining of the display line, used for center for now
 (define move-up-visible
     (lambda (s)
         (let-values ([(ls c) (line-start-count s)])
             (if (fx>= c max-cols)
-                (let loop ([i (back-char s)]
-                           [count 0])
-                    (cond
-                        ((fx>= count (fx- max-cols (wchar-width (utf8-char-ref buffer i))))
-                         (let repeat ([ti i]
-                                      [vis-remainder (fxmod c max-cols)])
-                             (if (fx> vis-remainder 0)
-                                 (repeat (back-char ti) 
-                                         (fx- vis-remainder 
-                                             (wchar-width (utf8-char-ref buffer (back-char ti)))))
-                                 ti)))
-                        ((fx< i 1) i)
-                        (else (loop (back-char i) (fx+ count (wchar-width (utf8-char-ref buffer i)))))))
+                (let loop ([i ls]
+                           [s1 ls]
+                           [s2 ls]
+                           [lc 0])
+                      (if (fx>= i s) s1
+                      (let* ([wchar (utf8-char-ref buffer i)])
+                                (cond
+                                    ((fx= lc (fx- max-cols (wchar-width wchar)))
+                                     (loop (forward-char i) s2 (forward-char i) 0))
+                                    ((fx> lc (fx- max-cols (wchar-width wchar)))
+                                     (loop (forward-char i) s2 i 2)) ;;forward-char here?
+                                    (else (loop (forward-char i) s1 s2 (fx+ lc (wchar-width wchar))))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
                     (if (fx>= pc max-cols)
-                        (let repeat ([ti (back-char ls)]
-                                     [vis-remainder (fxmod pc max-cols)])
-                            (if (fx> vis-remainder 0)
-                                (repeat (back-char ti) 
-                                        (fx- vis-remainder
-                                             (wchar-width (utf8-char-ref buffer (back-char ti)))))
-                                ti))
+                        (let loop ([i pls]
+                                   [s1 pls]
+                                   [lc 0])
+                              (if (fx>= i ls) s1
+                              (let* ([wchar (utf8-char-ref buffer i)])
+                                        (cond
+                                            ((fx= lc (fx- max-cols (wchar-width wchar)))
+                                             (loop (forward-char i) (forward-char i) 0))
+                                            ((fx> lc (fx- max-cols (wchar-width wchar)))
+                                             (loop (forward-char i) i 2)) ;;forward-char here?
+                                            (else (loop (forward-char i) s1 (fx+ lc (wchar-width wchar))))))))
                         (line-start (move-up s))))))))
 
 (define move-down
