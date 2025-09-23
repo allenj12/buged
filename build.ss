@@ -1,7 +1,7 @@
 #!/opt/homebrew/bin/chez --script
 
-(optimize-level 0)
-(debug-level 3)
+(optimize-level 3)
+(debug-level 0)
 (compile-imported-libraries #t)
 (generate-wpo-files #t)
 (compile-program "main.ss")
