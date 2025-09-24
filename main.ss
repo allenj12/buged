@@ -480,7 +480,7 @@
         (let-values ([(a out b c) (open-process-ports "pbpaste"
                                                       'block 
                                                       (make-transcoder (utf-8-codec)))])
-            (inschs (string->list (get-string-all out))))))
+            (when (not (port-eof? out)) (inschs (string->list (get-string-all out)))))))
 
 (define view-end
     (lambda ()
