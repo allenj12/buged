@@ -405,14 +405,15 @@
 (define-with-state find-match ([bv #f]
                                [bsize 0])
     (lambda opts
-        (when mark
+        (when (and mark (memq 'store opts))
             (set! bsize (fxabs (fx- mark gap-start)))
             (set! bv (make-buffer bsize))
             (if (fx< mark gap-start)
                 (bytevector-copy! buffer mark bv 0 bsize)
                 (bytevector-copy! buffer gap-end bv 0 bsize))
-            (delete-selection))
-            (when bv
+            (delete-selection)
+            (set! mark #f))
+            (when (and bv (not (memq 'store opts)))
                 (let* ([forward? (memq 'forward opts)]
                        [incr (if forward? forward-char back-char)]
                        [end-cond (if forward?
@@ -428,12 +429,11 @@
                                                 (fx+ i (bytevector-length bv))
                                                 i)
                                             base))
-                             (set! mark
-                                 (if (memq 'replace opts)
-                                     (if forward?
+                             (when (not (memq 'keep-mark opts))
+                                   (set! mark
+                                       (if forward?
                                          (fx- i (fx- gap-end gap-start))
-                                         (fx+ i (bytevector-length bv)))
-                                      #f)))
+                                         (fx+ i (bytevector-length bv))))))
                             (else
                              (loop (incr i)))))))))
 
@@ -759,13 +759,15 @@
     ((meta g) (when mark (jump-to #t)))
     ((ctrl q) (find-match 'forward))
     ((meta q) (find-match 'reverse))
-    ((ctrl r) (find-match 'replace 'forward))
-    ((meta r) (find-match 'replace 'reverse))
+    ((meta Q) (find-match 'store))
+    ((ctrl r) (find-match 'forward 'keep-mark))
+    ((meta r) (find-match 'reverse 'keep-mark))
     ((ctrl o) (execute #t))
     ((meta o) (execute #f))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
+    ((meta y) (paste))
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (sraise 18))
     ((ctrl _) (undo))
