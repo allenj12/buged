@@ -396,7 +396,7 @@
                    [bv-i 0])
         (cond
             ((fx>= bv-i (bytevector-length bv)) #t)
-            ((fx>= i size) #f)
+            ((or (fx>= i size) (fx<= i 0)) #f)
             ((not (fx= (utf8-ref buffer i) (utf8-ref bv bv-i)))
              #f)
             (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))
@@ -404,7 +404,7 @@
 
 (define-with-state find-match ([bv #f]
                                [bsize 0])
-    (lambda (replace?)
+    (lambda opts
         (when mark
             (set! bsize (fxabs (fx- mark gap-start)))
             (set! bv (make-buffer bsize))
@@ -413,20 +413,29 @@
                 (bytevector-copy! buffer gap-end bv 0 bsize))
             (delete-selection))
             (when bv
-                (let loop ([i gap-end])
-                    (cond 
-                        ((fx>= i size)
-                         #f)
-                        ;not needed if starting from gap-end
-                        ;((and (fx>= i gap-start)
-                        ;      (fx< i gap-end))
-                        ; (loop gap-end))
-                        ((buffer-match? i bv)
-                         (move-gap (fx- (fx+ i (bytevector-length bv)) gap-end))
-                         (set! mark (if replace? (fx- i (fx- gap-end gap-start))
-                                                 #f)))
-                        (else
-                         (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))))))))))
+                (let* ([forward? (memq 'forward opts)]
+                       [incr (if forward? forward-char back-char)]
+                       [end-cond (if forward?
+                                    (lambda (i) (fx>= i size))
+                                    (lambda (i) (fx<= i 0)))]
+                       [base (if forward? gap-end gap-start)])
+                    (let loop ([i (if forward? gap-end (back-char gap-start))])
+                        (cond 
+                            ((end-cond i)
+                             #f)
+                            ((buffer-match? i bv)
+                             (move-gap (fx- (if forward? 
+                                                (fx+ i (bytevector-length bv))
+                                                i)
+                                            base))
+                             (set! mark
+                                 (if (memq 'replace opts)
+                                     (if forward?
+                                         (fx- i (fx- gap-end gap-start))
+                                         (fx+ i (bytevector-length bv)))
+                                      #f)))
+                            (else
+                             (loop (incr i)))))))))
 
 (define-with-state execute ([cmd #f])
     (lambda (delete-command?)
@@ -504,7 +513,7 @@
 
 (define fx-between
     (lambda (x m n)
-      (or (and (fx<= x n)
+      (or (and (fx< x n);;so we do not highlight one extra char when gap-start < mark
                (fx>= x m))
           (and (fx>= x n)
                (fx<= x m)))))
@@ -745,10 +754,13 @@
     ((ctrl w) (write-file))
     ((ctrl x) (endwin) (exit))
     ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
+    ((meta h) (if mark (set! mark #f) (set! mark gap-start))) ;;redundant to make certain sequences smoother
     ((ctrl g) (when mark (jump-to #f)))
     ((meta g) (when mark (jump-to #t)))
-    ((ctrl q) (find-match #f))
-    ((ctrl r) (find-match #t))
+    ((ctrl q) (find-match 'forward))
+    ((meta q) (find-match 'reverse))
+    ((ctrl r) (find-match 'replace 'forward))
+    ((meta r) (find-match 'replace 'reverse))
     ((ctrl o) (execute #t))
     ((meta o) (execute #f))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
