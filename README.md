@@ -4,7 +4,7 @@
 * ncurses
 
 ``` sh
-brew install ncurses chez
+brew install ncurses chezscheme
 ```
 ## Install
 ``` sh 
