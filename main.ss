@@ -412,7 +412,7 @@
                 (bytevector-copy! buffer mark bv 0 bsize)
                 (bytevector-copy! buffer gap-end bv 0 bsize))
             (delete-selection)
-            (set! mark #f))
+            (when (not (memq 'keep-mark opts)) (set! mark #f)))
             (when (and bv (not (memq 'store opts)))
                 (let* ([forward? (memq 'forward opts)]
                        [incr (if forward? forward-char back-char)]
@@ -762,6 +762,7 @@
     ((meta Q) (find-match 'store))
     ((ctrl r) (find-match 'forward 'keep-mark))
     ((meta r) (find-match 'reverse 'keep-mark))
+    ((meta R) (find-match 'store 'keep-mark))
     ((ctrl o) (execute #t))
     ((meta o) (execute #f))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
