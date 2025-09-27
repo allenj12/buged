@@ -18,7 +18,7 @@
       [c-oflag long]
       [c-clfag long]
       [c-lflag long]
-      [cc-t (array 20 char)]
+      [cc-t (array 20 char )]
       [c-ispeed long]
       [c-ospeed long]))
 
@@ -65,12 +65,17 @@
         (display #\[ p)
         (for-each (lambda (x) (display x p)) sequence)))
 
+(define erase
+    (lambda ()
+        (screen-cmd #\2 #\J)))
+
 (define move
     (lambda (y x)
         (screen-cmd y #\; x #\H )))
 
 (define endwin
     (lambda ()
+        (erase)
         (move 0 0)
         (screen-cmd #\? #\1 #\0 #\4 #\9 #\l)
         (raw 'off)
@@ -90,10 +95,12 @@
         (define ECHO (if on? (fxnot #x00000008) #x00000008))
         (define ISIG (if on? (fxnot #x00000080) #x00000080))
         (define ICANON (if on? (fxnot #x00000100) #x00000100))
+        (define IXON (if on? (fxnot #x00000200) #x00000200))
         (define TCSAFLUSH 2)
         (tcgetattr 0 tios)
         (let ([flag (ftype-ref termios (c-lflag) tios)])
             (ftype-set! termios (c-lflag) tios (fxand flag ECHO ISIG ICANON))
+            (ftype-set! termios (c-iflag) tios IXON)
             (tcsetattr 0 TCSAFLUSH  tios))))
 
 (define-with-state set-screen-limits ([w (make-ftype-pointer winsize (foreign-alloc (ftype-sizeof winsize)))])
