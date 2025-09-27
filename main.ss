@@ -3,33 +3,32 @@
 
 (suppress-greeting #t)
 
-(define *curses* (load-shared-object "libcurses.dylib"))
+(define *std* (load-shared-object "libSystem.dylib"))
 
-(define initscr (foreign-procedure #f "initscr" () uptr))
-(define getmaxx (foreign-procedure #f "getmaxx" (uptr) int))
-(define getmaxy (foreign-procedure #f "getmaxy" (uptr) int))
-(define raw (foreign-procedure #f "raw" () void))
-(define start-color (foreign-procedure #f "start_color" () void))
-(define init-pair (foreign-procedure #f "init_pair" (int int int) void))
-(define use-default-colors (foreign-procedure #f "use_default_colors" () void))
-(define color-set (foreign-procedure #f "color_set" (short void*) int))
-(define noecho (foreign-procedure #f "noecho" () void))
-(define getch (foreign-procedure #f "getch" () int))
-(define endwin (foreign-procedure #f "endwin" () void))
-(define wnoutrefresh (foreign-procedure #f "wnoutrefresh" (uptr) void))
-(define doupdate (foreign-procedure #f "doupdate" () void))
-(define erase (foreign-procedure #f "erase" () void))
-(define curs-set (foreign-procedure #f "curs_set" (int) void))
-(define move (foreign-procedure #f "move" (int int) void))
-(define addch (foreign-procedure #f "addch" (int) void))
-(define getcurx (foreign-procedure #f "getcurx" (uptr) int))
-(define getcury (foreign-procedure #f "getcury" (uptr) int))
+(define-ftype winsize
+    (struct
+        [ws-col unsigned-short]
+        [ws-row unsigned-short]
+        [ws-xpixel unsigned-short]
+        [ws-ypixel unsigned-short]))
+
+(define-ftype termios
+    (struct
+      [c-iflag long]
+      [c-oflag long]
+      [c-clfag long]
+      [c-lflag long]
+      [cc-t (array 20 char)]
+      [c-ispeed long]
+      [c-ospeed long]))
+
+(define TIOCGWINSZ 1074295912) ;;check spelling
+(define ioctl (foreign-procedure (__varargs_after 2)"ioctl" (int unsigned-long (* winsize)) int))
+(define tcsetattr (foreign-procedure #f "tcsetattr" (int int (* termios)) int))
+(define tcgetattr (foreign-procedure #f "tcgetattr" (int (* termios)) int))
 
 (define setlocale (foreign-procedure #f "setlocale" (int string) string))
 (define sraise (foreign-procedure #f "raise" (int) void))
-(define get-wch (foreign-procedure #f "get_wch" (u8*) int))
-(define setcchar (foreign-procedure #f "setcchar" (u8* u8* unsigned-int short uptr) int))
-(define add-wch (foreign-procedure #f "add_wch" (u8*) int))
 (define wcrtomb (foreign-procedure #f "wcrtomb" (u8* wchar_t u8*) size_t))
 (define mbrtowc (foreign-procedure #f "mbrtowc" (u8* u8* size_t u8*) size_t))
 (define wcwidth (foreign-procedure #f "wcwidth" (wchar_t) int))
@@ -45,13 +44,12 @@
 (define file-name "")
 (define gap-start 0)
 (define gap-end start-size)
-(define colors '#(1 2 3 4 5 0))
-(define highlight-colors '#(6 7 8 9 10 33))
+(define colors '#(31 32 33 34 39))
 (define mark #f)
 (define undo-list '())
 (define undo-point '())
-
-(define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
+(define resize? #f)
+(define-values (p c) (open-string-output-port))
 
 (define-syntax define-with-state
     (lambda (stx)
@@ -60,6 +58,51 @@
          #`(define name ((lambda ()
                             (let* ((sname state) ...)
                                 body))))])))
+
+(define screen-cmd
+    (lambda sequence
+        (display #\esc p)
+        (display #\[ p)
+        (for-each (lambda (x) (display x p)) sequence)))
+
+(define move
+    (lambda (y x)
+        (screen-cmd y #\; x #\H )))
+
+(define endwin
+    (lambda ()
+        (move 0 0)
+        (screen-cmd #\? #\1 #\0 #\4 #\9 #\l)
+        (raw 'off)
+        (display (c))))
+
+(define hide-cursor
+    (lambda ()
+        (screen-cmd #\? #\2 #\5 #\l)))
+
+(define show-cursor
+    (lambda ()
+        (screen-cmd #\? #\2 #\5 #\h)))
+
+(define-with-state raw ([tios (make-ftype-pointer termios (foreign-alloc (ftype-sizeof termios)))])
+    (lambda opts
+        (define on? (memq 'on opts))
+        (define ECHO (if on? (fxnot #x00000008) #x00000008))
+        (define ISIG (if on? (fxnot #x00000080) #x00000080))
+        (define ICANON (if on? (fxnot #x00000100) #x00000100))
+        (define TCSAFLUSH 2)
+        (tcgetattr 0 tios)
+        (let ([flag (ftype-ref termios (c-lflag) tios)])
+            (ftype-set! termios (c-lflag) tios (fxand flag ECHO ISIG ICANON))
+            (tcsetattr 0 TCSAFLUSH  tios))))
+
+(define-with-state set-screen-limits ([w (make-ftype-pointer winsize (foreign-alloc (ftype-sizeof winsize)))])
+    (lambda ()
+        (ioctl 0 TIOCGWINSZ w)
+        (set! max-rows (ftype-ref winsize (ws-col) w))
+        (set! max-cols (ftype-ref winsize (ws-row) w))))
+
+(define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
 
 (define grow
     (lambda () 
@@ -503,7 +546,7 @@
                    (fx1+ size)) ;;+1 so that screen does not center if screen ends within view past half way
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
-                                ((or (fx>= i size) (fx>= counter max-rows)) i)
+                                ((or (fx>= i size) (fx>= counter (fx1- max-rows))) i)
                                 ((or (fx= (utf8-ref buffer i) 10)
                                      (fx= lc (fx- max-cols (wchar-width wchar))))
                                  (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
@@ -524,39 +567,47 @@
             (fx- idx (fx- gap-end gap-start))
             idx)))
 
-(define-with-state draw ([temp-array (make-bytevector 8 0)]
-                         [cchar (make-bytevector 32 0)])
+(define set-color
+    (lambda (x)
+        (screen-cmd x #\m)))
+
+(define draw 
     (lambda ()
         (define ve (view-end))
         (let loop ([i view-start]
-                   [depth -1])
+                   [depth -1]
+                   [lc 0])
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
-                (loop gap-end depth)
+                (loop gap-end depth lc)
                 (when (and (fx< i size) (fx< i ve))
-                    (bytevector-fill! cchar 0)
                     (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                            [wchar (utf8-char-ref buffer i)]
-                           [colors (if (and mark 
-                                            (fx-between (bound-idx i) gap-start mark))
-                                      highlight-colors
-                                      colors)]
                            [char (bytevector-u32-ref wchar 0 (native-endianness))])
-                        (bytevector-u32-native-set! temp-array 0 char)
+                        (if (and mark (fx-between (bound-idx i) gap-start mark))
+                                      (set-color 47)
+                                      (set-color 49))
                         (cond ((and (fx> depth -1)
                                     (or (fx= char 41) (fx= char 93) (fx= char 125)))
-                               (setcchar cchar temp-array 0 (vector-ref colors 
-                                                                (fxmod depth (fx1- (vector-length colors)))) 0)
-                               (add-wch cchar)
-                               (loop (fx+ i csize) (fx1- depth)))
+                               (set-color (vector-ref colors 
+                                                      (fxmod depth (fx1- (vector-length colors)))))
+                               (display (integer->char char) p)
+                               (loop (fx+ i csize) (fx1- depth) (fx1+ lc)))
                               ((or (fx= char 40) (fx= char 91) (fx= char 123))
-                               (setcchar cchar temp-array 0 (vector-ref colors (fxmod (fx1+ depth)
-                                                                                   (fx1- (vector-length colors)))) 0)
-                               (add-wch cchar)
-                               (loop (fx+ i csize) (fx1+ depth)))
-                              (else (setcchar cchar temp-array 0 (vector-ref colors (fx1- (vector-length colors))) 0)
-                                    (add-wch cchar)
-                                    (loop (fx+ i csize) depth)))))))))
+                               (set-color (vector-ref colors 
+                                                      (fxmod (fx1+ depth) (fx1- (vector-length colors)))))
+                               (display (integer->char char) p)
+                               (loop (fx+ i csize) (fx1+ depth) (fx1+ lc)))
+                              ((fx= char 10)
+                               (let repeat ([r (fxmod lc  max-cols)])
+                                   (when (fx< r max-cols)
+                                         (display #\space p)
+                                         (repeat (fx1+ r))))
+                               (display #\newline p)
+                               (loop (fx+ i csize) depth 0))
+                              (else (set-color (vector-ref colors (fx1- (vector-length colors))))
+                                    (display (integer->char char) p)
+                                    (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)))))))))))
 
 (define curs-yx
     (lambda ()
@@ -581,14 +632,13 @@
 
 (define render 
     (lambda () 
-        (curs-set 0)
-        (erase)
+        (hide-cursor)
+        (move 0 0)
         (draw)
         (let-values ([(y x) (curs-yx)])
-            (move y x))
-        (wnoutrefresh stdscr)
-        (doupdate)
-        (curs-set 1)))
+            (move (fx1+ y) (fx1+ x)))
+        (show-cursor)
+        (display (c))))
 
 (define center
     (lambda (s counter)
@@ -601,43 +651,26 @@
         (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
             (set! view-start (center gap-start (fx/ max-rows 2))))))
 
-(define-with-state main-loop ([wint (make-bytevector 4 0)])
+(define main-loop
     (lambda ()
         (render)
-        (bytevector-fill! wint 0);;needed?
-        (get-wch wint)
-        (proc-char (bytevector-u32-native-ref wint 0))
-        (check-view)
-        (main-loop)))
- 
-(define set-screen-limits 
-    (lambda () 
-        (set! max-rows (getmaxy stdscr))
-        (set! max-cols (getmaxx stdscr))))
+        (if resize?
+            (begin
+                (set! resize? #f)
+                (set-screen-limits)
+                (check-view)
+                (main-loop))
+            (begin
+                (proc-char (char->integer (read-char)))
+                (check-view)
+                (main-loop)))))
 
 (define init 
     (lambda ()
         (setlocale 0 "en_US.UTF-8") ;;6 on linux for LC_ALL
-        (set! stdscr (initscr))
-        (raw)
-        (noecho)
-
-        (start-color)
-        (use-default-colors)
-        (init-pair 1 1 -1)
-        (init-pair 2 2 -1)
-        (init-pair 3 3 -1)
-        (init-pair 4 4 -1)
-        (init-pair 5 5 -1)
-     
-        (init-pair 6 1 7)
-        (init-pair 7 2 7)
-        (init-pair 8 3 7)
-        (init-pair 9 4 7)
-        (init-pair 10 5 7)
-
-        (init-pair 33 -1 7)
-
+        (raw 'on)
+        (screen-cmd #\? #\1 #\0 #\4 #\9 #\h)
+        (display (c))
         (set-screen-limits)))
 
 (define write-file
@@ -670,6 +703,9 @@
                                 (loop (read-char port) (fx+ i (utf8-char-set! buffer i ch)))))))
             (set! buffer (make-bytevector start-size 0)))))
 
+(define resize-handler
+    (lambda (x)
+        (set! resize? #t)))
 
 (meta define keymapping
     (lambda (c)
@@ -731,7 +767,7 @@
                                           #'((binding commands ...) ...)))
                                 #`((27
                                     #,(cons #'case 
-                                        (cons #'(getch)
+                                        (cons #'(char->integer (read-char))
                                                 (meta-binding (filter meta? #'((binding commands ...) ...)))))))
                                 #'((else (insch c))))))))])))
 
@@ -780,6 +816,6 @@
 (scheme-start 
     (lambda x
         (dynamic-wind 
-            (lambda () (init) (load-file x))
+            (lambda () (register-signal-handler 28 resize-handler) (init) (load-file x))
             (lambda ()  (main-loop))
-            (lambda () (endwin)))))
+            (lambda () (endwin) (debug)))))
