@@ -614,7 +614,11 @@
                                (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)))))
                               (else (set-color (vector-ref colors (fx1- (vector-length colors))))
                                     (display (integer->char char) p)
-                                    (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar))))))
+                                    (if (and (fx= (wchar-width wchar) 2)
+                                             (fx= (fxmod (fx+ 2 lc) max-cols) 1))
+                                        ;;add dummy character for wide char wraps
+                                        (loop (fx+ i csize) depth (fx+ lc 3))
+                                        (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)))))))
                     (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
                                          (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
                                    (when (fx> r 0)
