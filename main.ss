@@ -92,15 +92,23 @@
 (define-with-state raw ([tios (make-ftype-pointer termios (foreign-alloc (ftype-sizeof termios)))])
     (lambda opts
         (define on? (memq 'on opts))
-        (define ECHO (if on? (fxnot #x00000008) #x00000008))
-        (define ISIG (if on? (fxnot #x00000080) #x00000080))
-        (define ICANON (if on? (fxnot #x00000100) #x00000100))
-        (define IXON (if on? (fxnot #x00000200) #x00000200))
+        (define ECHO #x00000008)
+        (define ISIG #x00000080)
+        (define ICANON #x00000100)
+        (define IXON #x00000200)
+        (define IEXTEN #x00000400)
+        ;(define ICRNL #x00000100)
         (define TCSAFLUSH 2)
         (tcgetattr 0 tios)
-        (let ([flag (ftype-ref termios (c-lflag) tios)])
-            (ftype-set! termios (c-lflag) tios (fxand flag ECHO ISIG ICANON))
-            (ftype-set! termios (c-iflag) tios IXON)
+        (let ([lflag (ftype-ref termios (c-lflag) tios)]
+              [iflag (ftype-ref termios (c-iflag) tios)])
+            (if on?
+                (begin
+                    (ftype-set! termios (c-lflag) tios (fxand lflag (fxnot (fxior ECHO ICANON ISIG IEXTEN))))
+                    (ftype-set! termios (c-iflag) tios (fxand iflag (fxnot (fxior IXON)))))
+                (begin
+                    (ftype-set! termios (c-lflag) tios (fxior lflag (fxior ECHO ICANON ISIG IEXTEN)))
+                    (ftype-set! termios (c-iflag) tios (fxior iflag (fxior IXON)))))
             (tcsetattr 0 TCSAFLUSH  tios))))
 
 (define-with-state set-screen-limits ([w (make-ftype-pointer winsize (foreign-alloc (ftype-sizeof winsize)))])
