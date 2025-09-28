@@ -553,7 +553,7 @@
                    (fx1+ size)) ;;+1 so that screen does not center if screen ends within view past half way
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
-                                ((or (fx>= i size) (fx>= counter (fx1- max-rows))) i)
+                                ((or (fx>= i size) (fx>= counter max-rows)) i)
                                 ((or (fx= (utf8-ref buffer i) 10)
                                      (fx= lc (fx- max-cols (wchar-width wchar))))
                                  (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
@@ -587,7 +587,7 @@
             (if (and (fx>= i gap-start)
                      (fx< i gap-end))
                 (loop gap-end depth lc)
-                (when (and (fx< i size) (fx< i ve))
+                (if (and (fx< i size) (fx< i ve))
                     (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                            [wchar (utf8-char-ref buffer i)]
                            [char (bytevector-u32-ref wchar 0 (native-endianness))])
@@ -610,11 +610,17 @@
                                    (when (fx< r max-cols)
                                          (display #\space p)
                                          (repeat (fx1+ r))))
-                               (display #\newline p)
-                               (loop (fx+ i csize) depth 0))
+;                               (display #\newline p)
+                               (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)))))
                               (else (set-color (vector-ref colors (fx1- (vector-length colors))))
                                     (display (integer->char char) p)
-                                    (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)))))))))))
+                                    (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar))))))
+                    (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
+                                         (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
+                                   (when (fx> r 0)
+                                         (display #\space p)
+                                         (repeat (fx1- r))))
+)))))
 
 (define curs-yx
     (lambda ()
