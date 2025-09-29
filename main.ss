@@ -300,7 +300,7 @@
                                     ((fx= lc (fx- max-cols (wchar-width wchar)))
                                      (loop (forward-char i) s2 (forward-char i) 0))
                                     ((fx> lc (fx- max-cols (wchar-width wchar)))
-                                     (loop (forward-char i) s2 i 2)) ;;forward-char here?
+                                     (loop (forward-char i) s2 (forward-char i) 2)) ;;forward-char here?
                                     (else (loop (forward-char i) s1 s2 (fx+ lc (wchar-width wchar))))))))
                 (let-values ([(pls pc) (line-start-count (back-char ls))])
                     (if (fx>= pc max-cols)
