@@ -614,24 +614,28 @@
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1+ depth) (fx1+ lc)))
                               ((fx= char 10)
+                               (set-color 49)
                                (let repeat ([r (fxmod lc  max-cols)])
                                    (when (fx< r max-cols)
                                          (display #\space p)
                                          (repeat (fx1+ r))))
-;                               (display #\newline p)
                                (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)))))
                               (else (set-color (vector-ref colors (fx1- (vector-length colors))))
-                                    (display (integer->char char) p)
                                     (if (and (fx= (wchar-width wchar) 2)
                                              (fx= (fxmod (fx+ 2 lc) max-cols) 1))
                                         ;;add dummy character for wide char wraps
-                                        (loop (fx+ i csize) depth (fx+ lc 3))
-                                        (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)))))))
-                    (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
-                                         (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
-                                   (when (fx> r 0)
-                                         (display #\space p)
-                                         (repeat (fx1- r))))
+                                        (begin (display #\space p)
+                                               (display (integer->char char) p)
+                                               (loop (fx+ i csize) depth (fx+ lc 3)))
+                                        (begin (display (integer->char char) p)
+                                               (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar))))))))
+                    (begin 
+                        (set-color 49)
+                        (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
+                                             (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
+                                       (when (fx> r 0)
+                                             (display #\space p)
+                                             (repeat (fx1- r)))))
 )))))
 
 (define curs-yx
@@ -675,6 +679,7 @@
     (lambda ()
         (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
             (set! view-start (center gap-start (fx/ max-rows 2))))))
+
 
 (define main-loop
     (lambda ()
@@ -831,7 +836,7 @@
     ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
     ((meta y) (paste))
     ((screen-resize) (set-screen-limits))
-    ((ctrl z) (sraise 18))
+    ((ctrl z) (endwin) (sraise 18) (init))
     ((ctrl _) (undo))
     ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
     ((\() (insch #\() (insch #\)) (move-back))
@@ -843,4 +848,4 @@
         (dynamic-wind 
             (lambda () (register-signal-handler 28 resize-handler) (init) (load-file x))
             (lambda ()  (main-loop))
-            (lambda () (endwin) (debug)))))
+            (lambda () (endwin)))))
