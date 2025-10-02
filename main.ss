@@ -657,13 +657,17 @@
 (define move-up-anywhere
     (lambda (s)
         (let loop ([counter 0]
-                   [i(back-char s)])
+                   [i (back-char s)])
             (let* ([wchar (utf8-char-ref buffer i)]
                    [wc-width (wchar-width wchar)])
-                   (if (or (fx>= counter (fx- max-cols wc-width))
+                   (cond
+                        ((fx<= i 0) 0)
+                        ((or
+                           (fx>= counter (fx- max-cols wc-width))
                            (fx= 10 (bytevector-u32-native-ref wchar 0)))
-                       i
-                       (loop (fx+ counter wc-width) (back-char i)))))))
+                         i)
+                        (else 
+                         (loop (fx+ counter wc-width) (back-char i))))))))
 
 (define center
     (lambda (s counter)
