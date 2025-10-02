@@ -558,7 +558,7 @@
                         (fx< i gap-end))
                    (loop gap-end counter lc))
                   ((fx>= i size)
-                   (fx1+ size)) ;;+1 so that screen does not center if screen ends within view past half way
+                   size)
                   (else (let* ([wchar (utf8-char-ref buffer i)])
                             (cond 
                                 ((or (fx>= i size) (fx>= counter max-rows)) i)
@@ -677,7 +677,7 @@
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (fx>= gap-end (view-end)))
+        (when (or (fx< gap-start view-start) (let-values ([(y x) (curs-yx)]) (fx>= y max-rows)))
             (set! view-start (center gap-start (fx/ max-rows 2))))))
 
 
