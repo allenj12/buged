@@ -1,10 +1,9 @@
 # Buged, a minimal nano-like editor, currently mac-os only
 ## Dependencies
 * chez scheme
-* ncurses
 
 ``` sh
-brew install ncurses chezscheme
+brew install chezscheme
 ```
 ## Install
 ``` sh 
