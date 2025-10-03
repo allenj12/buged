@@ -7,8 +7,8 @@
 
 (define-ftype winsize
     (struct
-        [ws-col unsigned-short]
         [ws-row unsigned-short]
+        [ws-col unsigned-short]
         [ws-xpixel unsigned-short]
         [ws-ypixel unsigned-short]))
 
@@ -114,8 +114,8 @@
 (define-with-state set-screen-limits ([w (make-ftype-pointer winsize (foreign-alloc (ftype-sizeof winsize)))])
     (lambda ()
         (ioctl 0 TIOCGWINSZ w)
-        (set! max-rows (ftype-ref winsize (ws-col) w))
-        (set! max-cols (ftype-ref winsize (ws-row) w))))
+        (set! max-rows (ftype-ref winsize (ws-row) w))
+        (set! max-cols (ftype-ref winsize (ws-col) w))))
 
 (define make-buffer (lambda (n) (make-immobile-bytevector n 0)))
 
