@@ -799,7 +799,9 @@
                                     #,(cons #'case 
                                         (cons #'(char->integer (read-char))
                                                 (meta-binding (filter meta? #'((binding commands ...) ...)))))))
-                                #'((else (insch c))))))))])))
+                                #'((else (when (or (fx>= c 32)
+                                                   (fx= c 9)
+                                                   (fx= c 10)) (insch c)))))))))])))
 
 ;;TODO should probably change fn flags to keywords instead of #t/#f
 (define-bindings proc-char
