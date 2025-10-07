@@ -50,6 +50,7 @@
 (define undo-point '())
 (define resize? #f)
 (define-values (p c) (open-string-output-port))
+(define tab-size 4)
 
 (define-syntax define-with-state
     (lambda (stx)
@@ -186,7 +187,9 @@
 
 (define wchar-width
     (lambda (wchar)
-        (wcwidth (integer->char (bytevector-u32-native-ref wchar 0)))))
+        (if (fx= (bytevector-u32-native-ref wchar 0) 9)
+            tab-size
+            (wcwidth (integer->char (bytevector-u32-native-ref wchar 0))))))
 
 (define back-char
     (lambda (idx)
@@ -571,6 +574,10 @@
     (lambda (x)
         (screen-cmd x #\m)))
 
+(define tab-string
+    (lambda ()
+        (list->string (map (lambda (x) #\space) (iota tab-size)))))
+
 (define draw 
     (lambda ()
         (define ve (view-end))
@@ -606,13 +613,22 @@
                                          (repeat (fx1+ r))))
                                (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)))))
                               (else (set-color (vector-ref colors (fx1- (vector-length colors))))
-                                    (if (and (fx= (wchar-width wchar) 2)
-                                             (fx= (fxmod (fx+ 2 lc) max-cols) 1))
+                                    (if (and (fx> (wchar-width wchar) 1)
+                                             (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
                                         ;;add dummy character for wide char wraps
-                                        (begin (display #\space p)
-                                               (display (integer->char char) p)
-                                               (loop (fx+ i csize) depth (fx+ lc 3)))
-                                        (begin (display (integer->char char) p)
+                                        (begin 
+                                               (let repeat ([times (fx- max-cols (fxmod lc max-cols))])
+                                                   (when (fx> times 0)
+                                                       (display #\space p)
+                                                       (repeat (fx1- times))))
+                                               (if (fx= char 9)
+                                                   (display (tab-string) p)
+                                                   (display (integer->char char) p))
+                                               (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)) (wchar-width wchar))))
+                                        (begin 
+                                               (if (fx= char 9)
+                                                   (display (tab-string) p)
+                                                   (display (integer->char char) p))
                                                (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar))))))))
                     (begin 
                         (set-color 49)
@@ -640,7 +656,7 @@
                             ((fx= lc (fx- max-cols (wchar-width wchar)))
                              (loop (fx+ i csize) (fx1+ counter) 0))
                             ((fx> lc (fx- max-cols (wchar-width wchar)))
-                             (loop (fx+ i csize) (fx1+ counter) 2))
+                             (loop (fx+ i csize) (fx1+ counter) (wchar-width wchar)))
                             (else 
                              (loop (fx+ i csize) counter (fx+ lc (wchar-width wchar))))))))))
 
@@ -840,7 +856,7 @@
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (endwin) (sraise 18) (init))
     ((ctrl _) (undo))
-    ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
+;    ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
     ((\() (insch #\() (insch #\)) (move-back))
     ((\[) (insch #\[) (insch #\]) (move-back))
     ((\{) (insch #\{) (insch #\}) (move-back)))
