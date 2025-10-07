@@ -856,7 +856,7 @@
     ((screen-resize) (set-screen-limits))
     ((ctrl z) (endwin) (sraise 18) (init))
     ((ctrl _) (undo))
-;    ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
+    ((tab) (insch #\space) (insch #\space) (insch #\space) (insch #\space))
     ((\() (insch #\() (insch #\)) (move-back))
     ((\[) (insch #\[) (insch #\]) (move-back))
     ((\{) (insch #\{) (insch #\}) (move-back)))
