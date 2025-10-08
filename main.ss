@@ -400,9 +400,9 @@
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
-        (open-process-ports (string-append  "{ read -r -d '' bugedcopyvar<<EOF\n"
+        (open-process-ports (string-append  "{ IFS= read -r -d '' bugedcopyvar<<EOF\n"
                                             (utf8->string bv)
-                                            "\nEOF\necho \"$bugedcopyvar\"; } | perl -0777 -pe 'chop' | pbcopy")
+                                            "\nEOF\nprintf \"%s\" \"$bugedcopyvar\"; } | perl -0777 -pe 'chop' | pbcopy")
                             'block
                             (make-transcoder (utf-8-codec)))))
 
