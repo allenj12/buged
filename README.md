@@ -1,4 +1,7 @@
 # Buged, a minimal nano-like editor, currently mac-os only
+
+![bugedDemo](https://github.com/user-attachments/assets/c822e318-4a59-48e7-a035-4648c2455574)
+
 ## Dependencies
 * chez scheme
 
