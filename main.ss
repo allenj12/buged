@@ -395,13 +395,24 @@
 
 (define copy-selection
     (lambda ()
+        (define esc-back-tick
+            (lambda (bv)
+                (let ([in-port (open-bytevector-input-port bv (make-transcoder (utf-8-codec)))])
+                    (let-values ([(out-port gen-string) (open-string-output-port)])
+                        (let loop ([c (read-char in-port)])
+                            (if (eq? c #!eof)
+                                (gen-string)
+                                (begin
+                                    (when (char=? c #\`) (write-char #\\ out-port))
+                                    (write-char c out-port)
+                                    (loop (read-char in-port)))))))))
         (define bsize (fxabs (fx- mark gap-start)))
         (define bv (make-buffer bsize))
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
         (open-process-ports (string-append  "{ IFS= read -r -d '' bugedcopyvar<<EOF\n"
-                                            (utf8->string bv)
+                                            (esc-back-tick bv)
                                             "\nEOF\nprintf \"%s\" \"$bugedcopyvar\"; } | perl -0777 -pe 'chop' | pbcopy")
                             'block
                             (make-transcoder (utf-8-codec)))))
