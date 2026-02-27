@@ -33,26 +33,52 @@
 (define mbrtowc (foreign-procedure #f "mbrtowc" (u8* u8* size_t u8*) size_t))
 (define wcwidth (foreign-procedure #f "wcwidth" (wchar_t) int))
 
+(define-syntax define-global
+    (lambda (stx)
+      (syntax-case stx ()
+        [(_ name body)
+         (identifier? #'name)
+         (with-syntax ([global-name (datum->syntax #'name `(quote ,(string->symbol
+                                                              (string-append 
+                                                                   "bugged-"
+                                                                   (symbol->string (syntax->datum #'name))))))])
+           #`(begin
+               (set-top-level-value! global-name body)
+               (define-syntax name
+                 (make-variable-transformer
+                  (lambda (st)
+                    (syntax-case st (set!)
+                      [(set! _ value)
+                       #`(set-top-level-value! global-name value)]
+                      [(id a (... ...)) (identifier? #'id) #`((top-level-value global-name) a (... ...))]
+                      [id (identifier? #'id)
+                       #`(top-level-value global-name)]))))))])))
+
 ;;-1 will be initialized on init
-(define start-size 50)
-(define size start-size)
+(define init-size 50)
+(define size init-size)
 (define buffer -1)
 (define view-start 0)
 (define view-in-str? #f)
 (define stdscr -1)
 (define max-cols -1)
 (define max-rows -1)
-(define file-name "")
 (define gap-start 0)
-(define gap-end start-size)
-(define colors '#(31 32 33 34 39))
-(define string-color 36)
+(define gap-end init-size)
 (define mark #f)
-(define undo-list '())
 (define undo-point '())
 (define resize? #f)
 (define-values (p c) (open-string-output-port))
-(define tab-size 4)
+;;user access
+(define-global start-size init-size)
+(define-global tab-size 4)
+(define-global text-color 39)
+(define-global paren-colors '#(31 32 33 34))
+(define-global string-color 36)
+(define-global bg-color 49)
+(define-global highlight-color 47)
+(define-global file-name "")
+(define-global undo-list '())
 
 (define-syntax define-with-state
     (lambda (stx)
@@ -638,8 +664,8 @@
                            [wchar (utf8-char-ref buffer i)]
                            [char (bytevector-u32-ref wchar 0 (native-endianness))])
                         (if (and mark (fx-between (bound-idx i) gap-start mark))
-                                      (set-color 47)
-                                      (set-color 49))
+                                      (set-color highlight-color)
+                                      (set-color bg-color))
                         (cond ((and (fx= char 34) 
                                     (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
                                 (unless in-str? (set-color string-color))
@@ -649,26 +675,26 @@
                                     (fx> depth -1)
                                     (or (fx= char 41) (fx= char 93) (fx= char 125))
                                     (not (escaped? i)))
-                               (set-color (vector-ref colors 
-                                                      (fxmod depth (fx1- (vector-length colors)))))
+                               (set-color (vector-ref paren-colors 
+                                                      (fxmod depth (fx1- (vector-length paren-colors)))))
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1- depth) (fx1+ lc) in-str?))
                               ((and (not in-str?) 
                                     (or (fx= char 40) (fx= char 91) (fx= char 123))
                                     (not (escaped? i)))
-                               (set-color (vector-ref colors 
-                                                      (fxmod (fx1+ depth) (fx1- (vector-length colors)))))
+                               (set-color (vector-ref paren-colors 
+                                                      (fxmod (fx1+ depth) (fx1- (vector-length paren-colors)))))
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1+ depth) (fx1+ lc) in-str?))
                               ((fx= char 10)
-                               (set-color 49)
+                               (set-color bg-color)
                                (let repeat ([r (fxmod lc  max-cols)])
                                    (when (fx< r max-cols)
                                          (display #\space p)
                                          (repeat (fx1+ r))))
                                (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols))) in-str?))
                               (else (unless in-str? 
-                                        (set-color (vector-ref colors (fx1- (vector-length colors)))))
+                                        (set-color text-color))
                                     (if (and (fx> (wchar-width wchar) 1)
                                              (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
                                         ;;add dummy character for wide char wraps
@@ -687,7 +713,7 @@
                                                    (display (integer->char char) p))
                                                (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)) in-str?))))))
                     (begin 
-                        (set-color 49)
+                        (set-color bg-color)
                         (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
                                              (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
                                        (when (fx> r 0)
@@ -786,27 +812,28 @@
         (set-screen-limits)))
 
 (define write-file
-        (lambda ()
-          (call-with-output-file file-name
-            (lambda (port)
-                (let loop ([i 0])
-                    (if (and (fx>= i gap-start)
-                             (fx< i gap-end))
-                        (loop gap-end)
-                    (when (fx< i size)
-                        (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                               [wchar (utf8-char-ref buffer i)])
-                            (put-char port (integer->char (bytevector-u32-native-ref wchar 0)))
-                            (loop (fx+ i csize)))))))
-                'truncate)))
+    (lambda ()
+        (when (fx> (string-length file-name) 0)
+            (call-with-output-file file-name
+                (lambda (port)
+                    (let loop ([i 0])
+                        (if (and (fx>= i gap-start)
+                                 (fx< i gap-end))
+                            (loop gap-end)
+                        (when (fx< i size)
+                            (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
+                                   [wchar (utf8-char-ref buffer i)])
+                                (put-char port (integer->char (bytevector-u32-native-ref wchar 0)))
+                                (loop (fx+ i csize)))))))
+                    'truncate))))
 
 (define load-file 
     (lambda (filename)
-        (set! file-name (car filename));;temp placement
         (if (and (not (null? filename))
                  (file-exists? (car filename)))
                 (call-with-input-file (car filename)
                     (lambda (port)
+                        (set! file-name (car filename))
                         (set! size (fx+ start-size (port-length port)))
                         (set! buffer (make-buffer size))
                         (let loop ([ch (read-char port)]
