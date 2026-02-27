@@ -48,7 +48,8 @@
                  (make-variable-transformer
                   (lambda (st)
                     (syntax-case st (set!)
-                      [(set! _ value)
+                      [(set! id value)
+                       (identifier? #'id)
                        #`(set-top-level-value! global-name value)]
                       [(id a (... ...)) (identifier? #'id) #`((top-level-value global-name) a (... ...))]
                       [id (identifier? #'id)
@@ -100,7 +101,7 @@
 
 (define move
     (lambda (y x)
-        (screen-cmd y #\; x #\H )))
+        (screen-cmd y #\; x #\H)))
 
 (define endwin
     (lambda ()
