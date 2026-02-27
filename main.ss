@@ -18,12 +18,12 @@
       [c-oflag long]
       [c-clfag long]
       [c-lflag long]
-      [cc-t (array 20 char )]
+      [cc-t (array 20 char)]
       [c-ispeed long]
       [c-ospeed long]))
 
 (define TIOCGWINSZ 1074295912) ;;check spelling
-(define ioctl (foreign-procedure (__varargs_after 2)"ioctl" (int unsigned-long (* winsize)) int))
+(define ioctl (foreign-procedure (__varargs_after 2) "ioctl" (int unsigned-long (* winsize)) int))
 (define tcsetattr (foreign-procedure #f "tcsetattr" (int int (* termios)) int))
 (define tcgetattr (foreign-procedure #f "tcgetattr" (int (* termios)) int))
 
@@ -200,7 +200,7 @@
             (let loop ([i (fx1- idx)])
                 (cond ((and (fx>= i gap-start)
                             (fx< i gap-end))
-                        (loop (fx1- gap-start)))
+                        (if (fxzero? gap-start) gap-end (loop (fx1- gap-start))))
                       ((let ([b (bytevector-u8-ref buffer i)])
                             (or
                                 (fx= (fxand b #x80) 0)
@@ -235,7 +235,7 @@
 
 (define forward-word
     (lambda (idx)
-        (let loop ([i idx])
+        (let loop ([i (forward-char idx)])
             (if (fx>= i size)
                 i
                 (let ([cur-ch (integer->char 
@@ -405,7 +405,10 @@
                             (if (eq? c #!eof)
                                 (gen-string)
                                 (begin
-                                    (when (char=? c #\`) (write-char #\\ out-port))
+                                    (when (or (char=? c #\$)
+                                              (char=? c #\\)
+                                              (char=? c #\`))
+                                        (write-char #\\ out-port))
                                     (write-char c out-port)
                                     (loop (read-char in-port)))))))))
         (define bsize (fxabs (fx- mark gap-start)))
@@ -591,6 +594,12 @@
     (lambda ()
         (list->string (map (lambda (x) #\space) (iota tab-size)))))
 
+(define escaped?
+    (lambda (idx)
+        (and (fx= 92 (bytevector-u8-ref buffer (back-char idx)))
+             (or (not (fx= 92 (bytevector-u8-ref buffer (back-char (back-char idx)))))
+                 (fx= (back-char idx) (back-char (back-char idx)))))))
+
 (define draw 
     (lambda ()
         (define ve (view-end))
@@ -616,12 +625,15 @@
                                 (loop (fx+ i csize) depth (fx1+ lc) (not in-str?)))
                               ((and (not in-str?)
                                     (fx> depth -1)
-                                    (or (fx= char 41) (fx= char 93) (fx= char 125)))
+                                    (or (fx= char 41) (fx= char 93) (fx= char 125))
+                                    (not (escaped? i)))
                                (set-color (vector-ref colors 
                                                       (fxmod depth (fx1- (vector-length colors)))))
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1- depth) (fx1+ lc) in-str?))
-                              ((and (not in-str?) (or (fx= char 40) (fx= char 91) (fx= char 123)))
+                              ((and (not in-str?) 
+                                    (or (fx= char 40) (fx= char 91) (fx= char 123))
+                                    (not (escaped? i)))
                                (set-color (vector-ref colors 
                                                       (fxmod (fx1+ depth) (fx1- (vector-length colors)))))
                                (display (integer->char char) p)
@@ -716,7 +728,7 @@
                            (let loop ([i 0]
                                       [count 0])
                                (cond 
-                                   ((fx> i (back-char view-start)) count)
+                                   ((fx>= i view-start) count)
                                    ((and (fx= 34 (bytevector-u8-ref buffer i))
                                          (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
                                     (loop (forward-char i) (fx1+ count)))
@@ -897,5 +909,5 @@
     (lambda x
         (dynamic-wind 
             (lambda () (register-signal-handler 28 resize-handler) (init) (load-file x))
-            (lambda ()  (main-loop))
+            (lambda () (main-loop))
             (lambda () (endwin)))))
