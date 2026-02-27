@@ -8,5 +8,5 @@
 (compile-whole-program "main.wpo" "main.so")
 
 (fasl-compressed #f)
-(make-boot-file "main.boot" '("petite") "main.so")
-(vfasl-convert-file "main.boot" "main.boot" '("petite"))
+(make-boot-file "main.boot" '("scheme" "petite") "main.so")
+(vfasl-convert-file "main.boot" "main.boot" '("scheme" "petite"))

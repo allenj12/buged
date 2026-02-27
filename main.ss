@@ -391,7 +391,6 @@
     (lambda ()
         (delete-selection (back-char gap-start))))
 
-;TODO check for one off errors
 (define delete-selection
     (lambda mark?
         (let ([mark (if (null? mark?) mark (car mark?))])
