@@ -517,6 +517,23 @@
                 (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
                 (when (not (port-eof? err)) (inschs (string->list (get-string-all err))))))))
 
+(define scheme-execute
+    (lambda ()
+        (when mark
+            (let* ([bsize (fxabs (fx- mark gap-start))]
+                   [bv (make-buffer bsize)])
+                (if (fx< mark gap-start)
+                    (bytevector-copy! buffer mark bv 0 bsize)
+                    (bytevector-copy! buffer gap-end bv 0 bsize))
+                (let-values ([(port gen-str) (open-string-output-port)])
+                    (guard (x [else #f])
+                        (display 
+                            (eval (read (open-bytevector-input-port bv (make-transcoder (utf-8-codec))))
+                                  (interaction-environment))
+                            port)
+                        (set! mark gap-start)
+                        (inschs (string->list (gen-str)))))))))
+
 (define undo
     (lambda ()
             (when (not (null? undo-point))
@@ -893,6 +910,7 @@
     ((meta R) (find-match 'store 'keep-mark))
     ((ctrl o) (execute #t))
     ((meta o) (execute #f))
+    ((meta O) (scheme-execute))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
