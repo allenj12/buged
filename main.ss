@@ -943,6 +943,7 @@
     ((ctrl o) (execute #t))
     ((meta o) (execute #f))
     ((meta O) (scheme-execute))
+    ((ctrl s) (new-cafe))
     ((ctrl c) (when mark (copy-selection) (set! mark #f)))
     ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
     ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
