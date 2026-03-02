@@ -678,14 +678,14 @@
                                     (or (fx= char 41) (fx= char 93) (fx= char 125))
                                     (not (escaped? i)))
                                (set-color (vector-ref paren-colors 
-                                                      (fxmod depth (fx1- (vector-length paren-colors)))))
+                                                      (fxmod depth (vector-length paren-colors))))
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1- depth) (fx1+ lc) in-str?))
                               ((and (not in-str?) 
                                     (or (fx= char 40) (fx= char 91) (fx= char 123))
                                     (not (escaped? i)))
                                (set-color (vector-ref paren-colors 
-                                                      (fxmod (fx1+ depth) (fx1- (vector-length paren-colors)))))
+                                                      (fxmod (fx1+ depth) (vector-length paren-colors))))
                                (display (integer->char char) p)
                                (loop (fx+ i csize) (fx1+ depth) (fx1+ lc) in-str?))
                               ((fx= char 10)
