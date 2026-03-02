@@ -423,30 +423,14 @@
 
 (define copy-selection
     (lambda ()
-        (define esc-back-tick
-            (lambda (bv)
-                (let ([in-port (open-bytevector-input-port bv (make-transcoder (utf-8-codec)))])
-                    (let-values ([(out-port gen-string) (open-string-output-port)])
-                        (let loop ([c (read-char in-port)])
-                            (if (eq? c #!eof)
-                                (gen-string)
-                                (begin
-                                    (when (or (char=? c #\$)
-                                              (char=? c #\\)
-                                              (char=? c #\`))
-                                        (write-char #\\ out-port))
-                                    (write-char c out-port)
-                                    (loop (read-char in-port)))))))))
         (define bsize (fxabs (fx- mark gap-start)))
         (define bv (make-buffer bsize))
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
-        (open-process-ports (string-append  "{ IFS= read -r -d '' bugedcopyvar<<EOF\n"
-                                            (esc-back-tick bv)
-                                            "\nEOF\nprintf \"%s\" \"$bugedcopyvar\"; } | perl -0777 -pe 'chop' | pbcopy")
-                            'block
-                            (make-transcoder (utf-8-codec)))))
+        (let-values ([(in out err pid) (open-process-ports "pbcopy" 'none #f)])
+            (put-bytevector in bv)
+            (close-port out) (close-port in) (close-port err))))
 
 ;;TODO: refactor move-down/move-up to handle traversing gaps so we can reuse them
 (define jump-to
@@ -538,10 +522,27 @@
         (when cmd
             (set! mark gap-start)
             (let-values ([(in out err id) (open-process-ports cmd
-                                                          'block 
+                                                          'none
                                                           (make-transcoder (utf-8-codec)))])
-                (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
-                (when (not (port-eof? err)) (inschs (string->list (get-string-all err))))))))
+                 (let all-loop ()
+                     (let out-loop ()
+                         (when (and (char-ready? out) (not (eq? (peek-char out) #!eof)))
+                             (insch (read-char out))
+                             (unless (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                                 (out-loop))))
+                     (let err-loop ()
+                         (when (and (char-ready? err) (not (eq? (peek-char err) #!eof)))
+                             (insch (read-char err))
+                             (unless (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                                 (err-loop))))
+                     (check-view) (render)
+                     (unless (or (and (char-ready?) (fx= (char->integer (read-char)) 3))
+                                 (and (char-ready? out) (eq? (peek-char out) #!eof)
+                                      (char-ready? err) (eq? (peek-char err) #!eof)))
+                         ;sleep 10ms
+                         (sleep (make-time 'time-duration 10000000 0))
+                         (all-loop)))
+                 (close-port in) (close-port out) (close-port err)))))
 
 (define scheme-execute
     (lambda ()
@@ -596,10 +597,11 @@
 ;;the extra parens we process
 (define paste
     (lambda ()
-        (let-values ([(a out b c) (open-process-ports "pbpaste"
+        (let-values ([(in out err pid) (open-process-ports "pbpaste"
                                                       'block 
                                                       (make-transcoder (utf-8-codec)))])
-            (when (not (port-eof? out)) (inschs (string->list (get-string-all out)))))))
+            (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
+            (close-port in) (close-port out) (close-port err))))
 
 (define view-end
     (lambda ()
