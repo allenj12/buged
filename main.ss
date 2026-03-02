@@ -16,7 +16,7 @@
     (struct
       [c-iflag long]
       [c-oflag long]
-      [c-clfag long]
+      [c-cflag long]
       [c-lflag long]
       [cc-t (array 20 char)]
       [c-ispeed long]
