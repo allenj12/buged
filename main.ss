@@ -831,17 +831,17 @@
 
 (define load-file 
     (lambda (filename)
+        (when (not (null? filename)) (set! file-name (car filename)))
         (if (and (not (null? filename))
                  (file-exists? (car filename)))
-                (call-with-input-file (car filename)
-                    (lambda (port)
-                        (set! file-name (car filename))
-                        (set! size (fx+ start-size (port-length port)))
-                        (set! buffer (make-buffer size))
-                        (let loop ([ch (read-char port)]
-                                   [i start-size])
-                            (when (not (eq? ch #!eof))
-                                (loop (read-char port) (fx+ i (utf8-char-set! buffer i ch)))))))
+            (call-with-input-file (car filename)
+                (lambda (port)
+                    (set! size (fx+ start-size (port-length port)))
+                    (set! buffer (make-buffer size))
+                    (let loop ([ch (read-char port)]
+                               [i start-size])
+                        (when (not (eq? ch #!eof))
+                            (loop (read-char port) (fx+ i (utf8-char-set! buffer i ch)))))))
             (set! buffer (make-bytevector start-size 0)))))
 
 (define resize-handler
