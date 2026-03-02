@@ -40,7 +40,7 @@
          (identifier? #'name)
          (with-syntax ([global-name (datum->syntax #'name `(quote ,(string->symbol
                                                               (string-append 
-                                                                   "bugged-"
+                                                                   "buged-"
                                                                    (symbol->string (syntax->datum #'name))))))])
            #`(begin
                (set-top-level-value! global-name body)
