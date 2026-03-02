@@ -539,8 +539,8 @@
                      (unless (or (and (char-ready?) (fx= (char->integer (read-char)) 3))
                                  (and (char-ready? out) (eq? (peek-char out) #!eof)
                                       (char-ready? err) (eq? (peek-char err) #!eof)))
-                         ;sleep 10ms
-                         (sleep (make-time 'time-duration 10000000 0))
+                         ;sleep 100ms
+                         (sleep (make-time 'time-duration 100000000 0))
                          (all-loop)))
                  (close-port in) (close-port out) (close-port err)))))
 
