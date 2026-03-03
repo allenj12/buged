@@ -561,12 +561,12 @@
                                 (with-output-to-string 
                                     (lambda ()
                                         (let loop ([expr (read bv-port)])
-                                            (if (port-eof? bv-port) 
-                                                (display (eval expr (interaction-environment)))
-                                                (begin 
-                                                    (eval expr (interaction-environment))
-                                                    (loop (read bv-port)))))))))))))))
-
+                                            (unless (eof-object? expr) 
+                                                (let ([next-expr (read bv-port)])
+                                                    (if (eof-object? next-expr)
+                                                        (display (eval expr (interaction-environment)))
+                                                        (eval expr (interaction-environment)))
+                                                    (loop next-expr))))))))))))))
 (define undo
     (lambda ()
             (when (not (null? undo-point))
