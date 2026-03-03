@@ -554,17 +554,18 @@
                     (bytevector-copy! buffer gap-end bv 0 bsize))
                 (let-values ([(port gen-str) (open-string-output-port)])
                     (define bv-port (open-bytevector-input-port bv (make-transcoder (utf-8-codec))))
-                    (guard (x [else (set! mark gap-start) (inschs (string->list (condition-message x)))])
-                        (display 
-                            (let loop ([expr (read bv-port)])
-                                (if (port-eof? bv-port) 
-                                    (eval expr (interaction-environment))
-                                    (begin 
-                                        (eval expr (interaction-environment))
-                                        (loop (read bv-port)))))
-                            port)
+                    (guard (x [else (set! mark gap-start) (inschs (string->list (apply format (condition-message x) (condition-irritants x))))])
                         (set! mark gap-start)
-                        (inschs (string->list (gen-str)))))))))
+                        (inschs
+                            (string->list  
+                                (with-output-to-string 
+                                    (lambda ()
+                                        (let loop ([expr (read bv-port)])
+                                            (if (port-eof? bv-port) 
+                                                (display (eval expr (interaction-environment)))
+                                                (begin 
+                                                    (eval expr (interaction-environment))
+                                                    (loop (read bv-port)))))))))))))))
 
 (define undo
     (lambda ()
