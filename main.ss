@@ -1,6 +1,6 @@
 #!chezscheme
 (import (chezscheme))
-
+ 
 (suppress-greeting #t)
 
 (define *std* (load-shared-object "libSystem.dylib"))
@@ -528,21 +528,29 @@
                      (let out-loop ()
                          (when (and (char-ready? out) (not (eq? (peek-char out) #!eof)))
                              (insch (read-char out))
-                             (unless (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                             (if (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                                 (begin
+                                     (system (string-append "kill -9 " (number->string id)))
+                                     (set-port-eof! err #t))
                                  (out-loop))))
                      (let err-loop ()
                          (when (and (char-ready? err) (not (eq? (peek-char err) #!eof)))
                              (insch (read-char err))
-                             (unless (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                             (if (and (char-ready?) (fx= (char->integer (peek-char)) 3))
+                                 (begin
+                                     (system (string-append "kill -9 " (number->string id)))
+                                     (set-port-eof! out #t))
                                  (err-loop))))
                      (check-view) (render)
-                     (unless (or (and (char-ready?) (fx= (char->integer (read-char)) 3))
-                                 (and (char-ready? out) (eq? (peek-char out) #!eof)
-                                      (char-ready? err) (eq? (peek-char err) #!eof)))
-                         ;sleep 100ms
-                         (sleep (make-time 'time-duration 100000000 0))
-                         (all-loop)))
-                 (close-port in) (close-port out) (close-port err)))))
+                     (if (and (char-ready?) (fx= (char->integer (read-char)) 3))
+                         (begin 
+                             (system (string-append "kill -9 " (number->string id)))
+                             (close-port in) (close-port out) (close-port err))
+                         (unless (and (char-ready? out) (eq? (peek-char out) #!eof)
+                                      (char-ready? err) (eq? (peek-char err) #!eof))
+                             ;sleep 100ms
+                             (sleep (make-time 'time-duration 100000000 0))
+                             (all-loop))))))))
 
 (define scheme-execute
     (lambda ()
