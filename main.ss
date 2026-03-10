@@ -769,20 +769,24 @@
                         (else 
                          (loop (fx+ counter wc-width) (back-char i))))))))
 
+(define set-view-in-str
+    (lambda ()
+        (set! view-in-str?
+            (fxodd?
+                (let loop ([i 0]
+                           [count 0])
+                    (cond 
+                        ((fx>= i view-start) count)
+                        ((and (fx= 34 (bytevector-u8-ref buffer i))
+                              (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
+                         (loop (forward-char i) (fx1+ count)))
+                        (else (loop (forward-char i) count))))))))
+
 (define center
     (lambda (s counter)
         (if (fx< counter 0)
             (begin (set! view-start (line-start-visible s))
-                   (set! view-in-str?
-                       (fxodd?
-                           (let loop ([i 0]
-                                      [count 0])
-                               (cond 
-                                   ((fx>= i view-start) count)
-                                   ((and (fx= 34 (bytevector-u8-ref buffer i))
-                                         (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
-                                    (loop (forward-char i) (fx1+ count)))
-                                   (else (loop (forward-char i) count)))))))
+                   (set-view-in-str))
             (center (move-up-anywhere s) (fx1- counter)))))
 
 (define check-view
@@ -908,11 +912,13 @@
         ((lambda (a b c d e f) (and (fx= c 65)
                                     (string=? f "M")
                                     (move-gap (fx- (move-down gap-end) gap-end))
-                                    (set! view-start (move-down view-start)))))
+                                    (set! view-start (move-down view-start))
+                                    (set-view-in-str))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
                                     (set! view-start (move-up view-start))
-                                    (move-gap (fx- (move-up gap-start) gap-start)))))
+                                    (move-gap (fx- (move-up gap-start) gap-start))
+                                    (set-view-in-str))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "M")
                                     (let-values ([(i y x) (curs-yx 
