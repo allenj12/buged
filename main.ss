@@ -70,6 +70,8 @@
 (define undo-point '())
 (define resize? #f)
 (define-values (p c) (open-string-output-port))
+(define clicked-y #f)
+(define clicked-x #f)
 ;;user access
 (define-global start-size init-size)
 (define-global tab-size 4)
@@ -107,11 +109,11 @@
     (lambda args
         (if (memq 'on args)
             (begin
-                (screen-cmd #\? #\1 #\0 #\0 #\0 #\h)
+                (screen-cmd #\? #\1 #\0 #\0 #\2 #\h)
                 (screen-cmd #\? #\1 #\0 #\0 #\6 #\h))
             (begin
-                (screen-cmd #\? #\1 #\0 #\0 #\6 #\l)
-                (screen-cmd #\? #\1 #\0 #\0 #\0 #\l)))))
+                (screen-cmd #\? #\1 #\0 #\0 #\2 #\l)
+                (screen-cmd #\? #\1 #\0 #\0 #\6 #\l)))))
 
 (define endwin
     (lambda ()
@@ -623,8 +625,8 @@
             (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
             (close-port in) (close-port out) (close-port err))))
 
-(define view-end
-    (lambda ()
+(define curs-yx
+    (lambda (pred)
         (let loop ([i view-start]
                    [counter 0]
                    [lc 0])
@@ -632,10 +634,10 @@
                         (fx< i gap-end))
                    (loop gap-end counter lc))
                   ((fx>= i size)
-                   size)
+                   (values i counter lc))
                   (else (let* ([wchar (utf8-char-ref buffer i)])
-                            (cond 
-                                ((or (fx>= i size) (fx>= counter max-rows)) i)
+                            (cond
+                                ((or (fx>= i size) (pred i counter lc)) (values i counter lc))
                                 ((or (fx= (utf8-ref buffer i) 10)
                                      (fx= lc (fx- max-cols (wchar-width wchar))))
                                  (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
@@ -672,7 +674,7 @@
 
 (define draw 
     (lambda ()
-        (define ve (view-end))
+        (define ve (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= counter max-rows)))]) i))
         (when view-in-str? (set-color string-color))
         (let loop ([i view-start]
                    [depth -1]
@@ -740,36 +742,14 @@
                                              (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
                                        (when (fx> r 0)
                                              (display #\space p)
-                                             (repeat (fx1- r)))))
-)))))
+                                             (repeat (fx1- r))))))))))
 
-(define curs-yx
-    (lambda ()
-        (let loop ([i view-start]
-                    [counter 0]
-                    [lc 0])
-            (if (fx>= i gap-start)
-                (values counter lc)
-                (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                       [wchar (utf8-char-ref buffer i)])
-                        (cond 
-                            ((fx>= i gap-start) 
-                             (values counter lc))
-                            ((fx= (utf8-ref buffer i) 10)
-                             (loop (fx+ i csize) (fx1+ counter) 0))
-                            ((fx= lc (fx- max-cols (wchar-width wchar)))
-                             (loop (fx+ i csize) (fx1+ counter) 0))
-                            ((fx> lc (fx- max-cols (wchar-width wchar)))
-                             (loop (fx+ i csize) (fx1+ counter) (wchar-width wchar)))
-                            (else 
-                             (loop (fx+ i csize) counter (fx+ lc (wchar-width wchar))))))))))
-
-(define render 
+(define render
     (lambda () 
         (hide-cursor)
         (move 0 0)
         (draw)
-        (let-values ([(y x) (curs-yx)])
+        (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= i gap-start)))])
             (move (fx1+ y) (fx1+ x)))
         (show-cursor)
         (display (c))))
@@ -807,7 +787,7 @@
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (let-values ([(y x) (curs-yx)]) (fx>= y max-rows)))
+        (when (or (fx< gap-start view-start) (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= i gap-start)))]) (fx>= y max-rows)))
             (center gap-start (fx/ max-rows 2)))))
 
 (define read-sequence
@@ -829,13 +809,14 @@
                                 (else (cons (string c) l))))))
                 ch))))
 
-(define search-bindings
+(define execute-binding
     (lambda (input binds)
         (cond
           ((null? binds) #f)
-          ((equal? (caar binds) input) (car binds))
-          ((and (procedure? (caar binds)) (list? input)) (if ((caar binds) input) (car binds) (search-bindings input (cdr binds))))
-          (else (search-bindings input (cdr binds))))))
+          ((and (fixnum? (caar binds)) (list? input) (fx= (caar binds) (length input)))
+           (if (apply (cadar binds) input) #t (execute-binding input (cdr binds))))
+          ((equal? (caar binds) input) ((cadar binds)) #t)
+          (else (execute-binding input (cdr binds))))))
 
 (define main-loop
     (lambda ()
@@ -847,14 +828,13 @@
                 (check-view)
                 (main-loop))
             (let* ([input (read-sequence)]
-                   [proc (search-bindings input bindings)])
-                (if proc
-                    ((cadr proc))
-                    (when (and (char? input)
-                               (or (char>=? input #\space)
-                                   (char=? input #\newline)
-                                   (char=? input #\tab)))
-                        (insch input)))
+                   [proc (execute-binding input bindings)])
+                (when (and (not proc)
+                           (char? input)
+                           (or (char>=? input #\space)
+                               (char=? input #\newline)
+                               (char=? input #\tab)))
+                    (insch input))
                 (check-view)
                 (main-loop)))))
 
@@ -915,22 +895,53 @@
 (define-syntax make-bindings
     (lambda (stx)
         (syntax-case stx ()
-            [(_ (binding procedure ...) ...)
-             #`(list (list binding (lambda () procedure ...)) ...)])))
+            [(_ ((lambda (args ...) body ...)))
+             #`(list #,(length (syntax->datum #'(args ...))) (lambda (args ...) body ...))]
+            [(_ (binding procedure ...))
+             #`(list binding (lambda () procedure ...))]
+            [(_ binding ...)
+             #`(list (make-bindings binding) ...)])))
 
 ;;TODO should probably change fn flags to keywords instead of #t/#f
 (define bindings
     (make-bindings
-        ((lambda (input) (and (fx= (length input) 6)
-                              (fx= (caddr input) 65)
-                              (string=? (list-ref input 5) "M")))
-         (move-gap (fx- (move-down gap-end) gap-end))
-         (set! view-start (move-down view-start)))
-        ((lambda (input) (and (fx= (length input) 6)
-                              (fx= (caddr input) 64)
-                              (string=? (list-ref input 5) "M")))
-         (move-gap (fx- (move-up gap-start) gap-start))
-         (set! view-start (move-up view-start)))
+        ((lambda (a b c d e f) (and (fx= c 65)
+                                    (string=? f "M")
+                                    (move-gap (fx- (move-down gap-end) gap-end))
+                                    (set! view-start (move-down view-start)))))
+        ((lambda (a b c d e f) (and (fx= c 64)
+                                    (string=? f "M")
+                                    (set! view-start (move-up view-start))
+                                    (move-gap (fx- (move-up gap-start) gap-start)))))
+        ((lambda (a b c d e f) (and (fx= c 0)
+                                    (string=? f "M")
+                                    (let-values ([(i y x) (curs-yx 
+                                                              (lambda (i counter lc)
+                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
+                                        (if (fx>= (back-char i) gap-end)
+                                            (move-gap (fx- (back-char i) gap-end))
+                                            (move-gap (fx- (back-char i) gap-start)))
+                                        (unless (and clicked-y clicked-x)
+                                            (set! mark gap-start)
+                                            (set! clicked-y y)
+                                            (set! clicked-x x))))))
+        ((lambda (a b c d e f) (and (fx= c 32)
+                                    (string=? f "M")
+                                    (let-values ([(i y x) (curs-yx 
+                                                              (lambda (i counter lc)
+                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
+                                        (if (fx>= (back-char i) gap-end)
+                                            (move-gap (fx- (back-char i) gap-end))
+                                            (move-gap (fx- (back-char i) gap-start)))))))
+        ((lambda (a b c d e f) (and (fx= c 0)
+                                    (string=? f "m")
+                                    (let-values ([(i y x) (curs-yx 
+                                                              (lambda (i counter lc)
+                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
+                                        (when (and (fx= clicked-y y) (fx= clicked-x x))
+                                            (set! mark #f))
+                                        (set! clicked-y #f)
+                                        (set! clicked-x #f)))))
         (#\delete (if mark (begin (delete-selection) (set! mark #f)) (delch)))
         ((ctrl #\d) (when (fx< gap-end size) 
                         (move-forward) (delch)))
