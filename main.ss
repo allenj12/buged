@@ -56,7 +56,7 @@
                        #`(top-level-value global-name)]))))))])))
 
 ;;-1 will be initialized on init
-(define init-size 50)
+(define init-size 1024)
 (define size init-size)
 (define buffer -1)
 (define view-start 0)
@@ -103,10 +103,21 @@
     (lambda (y x)
         (screen-cmd y #\; x #\H)))
 
+(define mouse-tracking
+    (lambda args
+        (if (memq 'on args)
+            (begin
+                (screen-cmd #\? #\1 #\0 #\0 #\0 #\h)
+                (screen-cmd #\? #\1 #\0 #\0 #\6 #\h))
+            (begin
+                (screen-cmd #\? #\1 #\0 #\0 #\6 #\l)
+                (screen-cmd #\? #\1 #\0 #\0 #\0 #\l)))))
+
 (define endwin
     (lambda ()
         (erase)
         (move 0 0)
+        (mouse-tracking 'off)
         (screen-cmd #\? #\1 #\0 #\4 #\9 #\l)
         (raw 'off)
         (display (c))))
@@ -799,6 +810,32 @@
         (when (or (fx< gap-start view-start) (let-values ([(y x) (curs-yx)]) (fx>= y max-rows)))
             (center gap-start (fx/ max-rows 2)))))
 
+(define read-sequence
+    (lambda ()
+        (let ([ch (read-char)])
+            (if (char=? ch #\esc)
+                (let loop ([c (read-char)])
+                    (if (char-alphabetic? c)
+                        (list (string c))
+                        (let ([l (loop (read-char))])
+                            (cond
+                                ((and (not (char=? c#\;)) (not (char-numeric? c)) (string? (car l)) (string->number (car l)))
+                                 (cons (string c) (cons (string->number (car l)) (cdr l))))
+                                ((and (char? c) (char=? c #\;) (string? (car l)) (string->number (car l)))
+                                 (cons (string->number (car l)) (cdr l)))
+                                ((and (char? c) (char=? c #\;)) l)
+                                ((and (char-numeric? c) (string? (car l)) (string->number (car l)))
+                                 (cons (string-append (string c) (car l)) (cdr l)))
+                                (else (cons (string c) l))))))
+                ch))))
+
+(define search-bindings
+    (lambda (input binds)
+        (cond
+          ((null? binds) #f)
+          ((equal? (caar binds) input) (car binds))
+          ((and (procedure? (caar binds)) (list? input)) (if ((caar binds) input) (car binds) (search-bindings input (cdr binds))))
+          (else (search-bindings input (cdr binds))))))
 
 (define main-loop
     (lambda ()
@@ -809,8 +846,15 @@
                 (set-screen-limits)
                 (check-view)
                 (main-loop))
-            (begin
-                (proc-char (char->integer (read-char)))
+            (let* ([input (read-sequence)]
+                   [proc (search-bindings input bindings)])
+                (if proc
+                    ((cadr proc))
+                    (when (and (char? input)
+                               (or (char>=? input #\space)
+                                   (char=? input #\newline)
+                                   (char=? input #\tab)))
+                        (insch input)))
                 (check-view)
                 (main-loop)))))
 
@@ -819,6 +863,7 @@
         (setlocale 0 "en_US.UTF-8") ;;6 on linux for LC_ALL
         (raw 'on)
         (screen-cmd #\? #\1 #\0 #\4 #\9 #\h)
+        (mouse-tracking 'on)
         (display (c))
         (set-screen-limits)))
 
@@ -857,115 +902,75 @@
     (lambda (x)
         (set! resize? #t)))
 
-(meta define keymapping
+(define ctrl
     (lambda (c)
-        (case c
-            (backspace 127)
-            (tab 9)
-            (screen-resize 410)
-            (else (char->integer 
-                    (string-ref (symbol->string c)
-                                0))))))
+        (integer->char (char- (char-upcase c) #\@))))
 
+(define esc
+    (lambda (str)
+        (if (char? str)
+            (list (string str))
+            (with-input-from-string (string-append (string #\esc) str) (lambda () (read-sequence))))))
 
-(meta define non-meta-binding
-        (lambda (stx)
-            (syntax-case stx ()
-                [(pairs ...)
-                    (map (lambda (pair)
-                            (let ([b (syntax->datum (car pair))])
-                                (cons 
-                                    (cond
-                                        ((memq 'ctrl b) 
-                                         (char-
-                                             (char-upcase
-                                                 (string-ref
-                                                     (symbol->string (car (last-pair b)))
-                                                     0))
-                                              #\@))
-                                        (else (keymapping (car (last-pair b)))))
-                                    (cdr pair))))
-                    #'(pairs ...))])))
-
-;;assumes ascii only meta bindings
-(meta define meta-binding
-        (lambda (stx)
-            (syntax-case stx ()
-                [(pairs ...)
-                    (map (lambda (pair)
-                            (let ([b (syntax->datum (car pair))])
-                                (cons 
-                                    (char->integer
-                                         (string-ref
-                                             (symbol->string (car (last-pair b)))
-                                             0))
-                                    (cdr pair))))
-                    #'(pairs ...))])))
-
-(define-syntax define-bindings
+(define-syntax make-bindings
     (lambda (stx)
-        (define meta? (lambda (pair) (memq 'meta (syntax->datum (car pair)))))
         (syntax-case stx ()
-        [(_ fn-name (binding commands ...) ...)
-        #`(define fn-name
-            (lambda (c)
-                #,(cons #'case
-                        (cons #' c
-                            (append 
-                                (non-meta-binding 
-                                    (filter (lambda (pair) (not (meta? pair)))
-                                          #'((binding commands ...) ...)))
-                                #`((27
-                                    #,(cons #'case 
-                                        (cons #'(char->integer (read-char))
-                                                (meta-binding (filter meta? #'((binding commands ...) ...)))))))
-                                #'((else (when (or (fx>= c 32)
-                                                   (fx= c 9)
-                                                   (fx= c 10)) (insch c)))))))))])))
+            [(_ (binding procedure ...) ...)
+             #`(list (list binding (lambda () procedure ...)) ...)])))
 
 ;;TODO should probably change fn flags to keywords instead of #t/#f
-(define-bindings proc-char
-    ((backspace) (if mark (begin (delete-selection) (set! mark #f)) (delch)))
-    ((ctrl d) (when (fx< gap-end size) 
-                    (move-forward) (delch)))
-    ((ctrl b) (move-back))
-    ((meta b) (move-gap (fx- (back-word gap-start) gap-start)))
-    ((ctrl f) (move-forward))
-    ((meta f) (move-gap (fx- (forward-word gap-end) gap-end)))
-    ((ctrl l) (center gap-start (fx/ max-rows 2)))
-    ((ctrl e) (move-gap (fx- (line-end gap-end) gap-end)))
-    ((ctrl a) (move-gap (fx- (line-start gap-start) gap-start)))
-    ((ctrl p) (move-gap (fx- (move-up gap-start) gap-start)))
-    ((ctrl n) (move-gap (fx- (move-down gap-end) gap-end)))
-    ((ctrl v) (page-down))
-    ((meta v) (page-up))
-    ((ctrl w) (write-file))
-    ((ctrl x) (endwin) (exit))
-    ((ctrl h) (if mark (set! mark #f) (set! mark gap-start)))
-    ((meta h) (if mark (set! mark #f) (set! mark gap-start))) ;;redundant to make certain sequences smoother
-    ((ctrl g) (when mark (jump-to #f)))
-    ((meta g) (when mark (jump-to #t)))
-    ((ctrl q) (find-match 'forward))
-    ((meta q) (find-match 'reverse))
-    ((meta Q) (find-match 'store))
-    ((ctrl r) (find-match 'forward 'keep-mark))
-    ((meta r) (find-match 'reverse 'keep-mark))
-    ((meta R) (find-match 'store 'keep-mark))
-    ((ctrl o) (execute #t))
-    ((meta o) (execute #f))
-    ((meta O) (scheme-execute))
-    ((ctrl s) (new-cafe))
-    ((ctrl c) (when mark (copy-selection) (set! mark #f)))
-    ((ctrl k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
-    ((ctrl y) (when mark (delete-selection)) (paste) (set! mark #f))
-    ((meta y) (paste))
-    ((screen-resize) (set-screen-limits))
-    ((ctrl z) (endwin) (sraise 18) (init))
-    ((ctrl _) (undo))
-    ((tab) (inschs (map (lambda (e) #\space) (iota tab-size))))
-    ((\() (insch #\() (insch #\)) (move-back))
-    ((\[) (insch #\[) (insch #\]) (move-back))
-    ((\{) (insch #\{) (insch #\}) (move-back)))
+(define bindings
+    (make-bindings
+        ((lambda (input) (and (fx= (length input) 6)
+                              (fx= (caddr input) 65)
+                              (string=? (list-ref input 5) "M")))
+         (page-down))
+        ((lambda (input) (and (fx= (length input) 6)
+                              (fx= (caddr input) 64)
+                              (string=? (list-ref input 5) "M")))
+         (page-up))
+        (#\delete (if mark (begin (delete-selection) (set! mark #f)) (delch)))
+        ((ctrl #\d) (when (fx< gap-end size) 
+                        (move-forward) (delch)))
+        ((ctrl #\b) (move-back))
+        ((esc #\b) (move-gap (fx- (back-word gap-start) gap-start)))
+        ((ctrl #\f) (move-forward))
+        ((esc #\f) (move-gap (fx- (forward-word gap-end) gap-end)))
+        ((ctrl #\l) (center gap-start (fx/ max-rows 2)))
+        ((ctrl #\e) (move-gap (fx- (line-end gap-end) gap-end)))
+        ((ctrl #\a) (move-gap (fx- (line-start gap-start) gap-start)))
+        ((ctrl #\p) (move-gap (fx- (move-up gap-start) gap-start)))
+        ((esc #\p) (move-gap (fx- (fold-left (lambda (acc e) (move-up acc)) gap-start (iota 5)) gap-start)))
+        ((ctrl #\n) (move-gap (fx- (move-down gap-end) gap-end)))
+        ((esc #\n) (move-gap (fx- (fold-left (lambda (acc e) (move-down acc)) gap-end (iota 5)) gap-end)))
+        ((ctrl #\v) (page-down))
+        ((esc #\v) (page-up))
+        ((ctrl #\w) (write-file))
+        ((ctrl #\x) (endwin) (exit))
+        ((ctrl #\h) (if mark (set! mark #f) (set! mark gap-start)))
+        ((esc #\h) (if mark (set! mark #f) (set! mark gap-start)))
+        ((ctrl #\g) (when mark (jump-to #f)))
+        ((esc #\g) (when mark (jump-to #t)))
+        ((ctrl #\q) (find-match 'forward))
+        ((esc #\q) (find-match 'reverse))
+        ((esc #\Q) (find-match 'store))
+        ((ctrl #\r) (find-match 'forward 'keep-mark))
+        ((esc #\r) (find-match 'reverse 'keep-mark))
+        ((esc #\R) (find-match 'store 'keep-mark))
+        ((ctrl #\o) (execute #t))
+        ((esc #\o) (execute #f))
+        ((esc #\O) (scheme-execute))
+        ((ctrl #\s) (new-cafe))
+        ((ctrl #\c) (when mark (copy-selection) (set! mark #f)))
+        ((ctrl #\k) (when mark (copy-selection) (delete-selection) (set! mark #f)))
+        ((ctrl #\y) (when mark (delete-selection)) (paste) (set! mark #f))
+        ((esc #\y) (paste))
+        ((ctrl #\z) (endwin) (sraise 18) (init))
+        ((ctrl #\_) (undo))
+        (#\tab (inschs (map (lambda (e) #\space) (iota tab-size))))
+        (#\( (insch #\() (insch #\)) (move-back))
+        (#\[ (insch #\[) (insch #\]) (move-back))
+        (#\{ (insch #\{) (insch #\}) (move-back))))
 
 (scheme-start 
     (lambda x
