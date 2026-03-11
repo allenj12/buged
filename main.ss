@@ -240,7 +240,7 @@
             (let loop ([i (fx1- idx)])
                 (cond ((and (fx>= i gap-start)
                             (fx< i gap-end))
-                        (if (fxzero? gap-start) gap-end (loop (fx1- gap-start))))
+                        (loop (fx1- gap-start)))
                       ((let ([b (bytevector-u8-ref buffer i)])
                             (or
                                 (fx= (fxand b #x80) 0)
@@ -271,7 +271,8 @@
     (lambda (idx)
             (if (fx>= idx size)
                 idx
-                (fx+ idx (utf8-size (bytevector-u8-ref buffer idx))))))
+                (let ([new-idx (fx+ idx (utf8-size (bytevector-u8-ref buffer idx)))])
+                    (if (and (fx>= new-idx gap-start) (fx< idx gap-end)) gap-end new-idx)))))
 
 (define forward-word
     (lambda (idx)
@@ -349,7 +350,7 @@
 
 (define move-down
     (lambda (s)
-        (let-values ([(ls count) (line-start-count gap-start)])
+        (let-values ([(ls count) (line-start-count s)])
             (let* ([le (line-end s)]
                    [nls (forward-char le)])
                 (if (fx= le nls)
@@ -630,20 +631,15 @@
         (let loop ([i view-start]
                    [counter 0]
                    [lc 0])
-            (cond ((and (fx>= i gap-start)
-                        (fx< i gap-end))
-                   (loop gap-end counter lc))
-                  ((fx>= i size)
-                   (values i counter lc))
-                  (else (let* ([wchar (utf8-char-ref buffer i)])
-                            (cond
-                                ((or (fx>= i size) (pred i counter lc)) (values i counter lc))
-                                ((or (fx= (utf8-ref buffer i) 10)
-                                     (fx= lc (fx- max-cols (wchar-width wchar))))
-                                 (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) (fx1+ counter) 0))
-                                ((fx> lc (fx- max-cols (wchar-width wchar)))
-                                 (loop i (fx1+ counter) 0))
-                                (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i))) counter (fx+ lc (wchar-width wchar)))))))))))
+            (let* ([wchar (utf8-char-ref buffer i)])
+                (cond
+                    ((or (fx>= i size) (pred i counter lc)) (values i counter lc))
+                    ((or (fx= (utf8-ref buffer i) 10)
+                         (fx= lc (fx- max-cols (wchar-width wchar))))
+                     (loop (forward-char i) (fx1+ counter) 0))
+                    ((fx> lc (fx- max-cols (wchar-width wchar)))
+                     (loop i (fx1+ counter) 0))
+                    (else (loop (forward-char i) counter (fx+ lc (wchar-width wchar)))))))))
 
 (define fx-between
     (lambda (x m n)
@@ -680,69 +676,67 @@
                    [depth -1]
                    [lc 0]
                    [in-str? view-in-str?])
-            (if (and (fx>= i gap-start)
-                     (fx< i gap-end))
-                (loop gap-end depth lc in-str?)
-                (if (and (fx< i size) (fx< i ve))
-                    (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
-                           [wchar (utf8-char-ref buffer i)]
-                           [char (bytevector-u32-ref wchar 0 (native-endianness))])
-                        (if (and mark (fx-between (bound-idx i) gap-start mark))
-                                      (set-color highlight-color)
-                                      (set-color bg-color))
-                        (cond ((and (fx= char 34) 
-                                    (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
-                                (unless in-str? (set-color string-color))
-                                (display #\" p)
-                                (loop (fx+ i csize) depth (fx1+ lc) (not in-str?)))
-                              ((and (not in-str?)
-                                    (fx> depth -1)
-                                    (or (fx= char 41) (fx= char 93) (fx= char 125))
-                                    (not (escaped? i)))
-                               (set-color (vector-ref paren-colors 
-                                                      (fxmod depth (vector-length paren-colors))))
-                               (display (integer->char char) p)
-                               (loop (fx+ i csize) (fx1- depth) (fx1+ lc) in-str?))
-                              ((and (not in-str?) 
-                                    (or (fx= char 40) (fx= char 91) (fx= char 123))
-                                    (not (escaped? i)))
-                               (set-color (vector-ref paren-colors 
-                                                      (fxmod (fx1+ depth) (vector-length paren-colors))))
-                               (display (integer->char char) p)
-                               (loop (fx+ i csize) (fx1+ depth) (fx1+ lc) in-str?))
-                              ((fx= char 10)
-                               (set-color bg-color)
-                               (let repeat ([r (fxmod lc  max-cols)])
-                                   (when (fx< r max-cols)
+            (if (and (fx< i size) (fx< i ve))
+                (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
+                       [wchar (utf8-char-ref buffer i)]
+
+                       [char (bytevector-u32-ref wchar 0 (native-endianness))])
+                    (if (and mark (fx-between (bound-idx i) gap-start mark))
+                                  (set-color highlight-color)
+                                  (set-color bg-color))
+                    (cond ((and (fx= char 34) 
+                                (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
+                            (unless in-str? (set-color string-color))
+                            (display #\" p)
+                            (loop (forward-char i) depth (fx1+ lc) (not in-str?)))
+                          ((and (not in-str?)
+                                (fx> depth -1)
+                                (or (fx= char 41) (fx= char 93) (fx= char 125))
+                                (not (escaped? i)))
+                           (set-color (vector-ref paren-colors 
+                                                  (fxmod depth (vector-length paren-colors))))
+                           (display (integer->char char) p)
+                           (loop (forward-char i) (fx1- depth) (fx1+ lc) in-str?))
+                          ((and (not in-str?) 
+                                (or (fx= char 40) (fx= char 91) (fx= char 123))
+                                (not (escaped? i)))
+                           (set-color (vector-ref paren-colors 
+                                                  (fxmod (fx1+ depth) (vector-length paren-colors))))
+                           (display (integer->char char) p)
+                           (loop (forward-char i) (fx1+ depth) (fx1+ lc) in-str?))
+                          ((fx= char 10)
+                           (set-color bg-color)
+                           (let repeat ([r (fxmod lc  max-cols)])
+                               (when (fx< r max-cols)
+                                     (display #\space p)
+                                     (repeat (fx1+ r))))
+                           (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols))) in-str?))
+                          (else (unless in-str? 
+                                    (set-color text-color))
+                                (if (and (fx> (wchar-width wchar) 1)
+                                         (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
+                                    ;;add dummy character for wide char wraps
+                                    (begin 
+                                           (let repeat ([times (fx- max-cols (fxmod lc max-cols))])
+                                               (when (fx> times 0)
+                                                   (display #\space p)
+                                                   (repeat (fx1- times))))
+                                           (if (fx= char 9)
+                                               (display (tab-string) p)
+                                               (display (integer->char char) p))
+                                           (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)) (wchar-width wchar)) in-str?))
+                                    (begin 
+                                           (if (fx= char 9)
+                                               (display (tab-string) p)
+                                               (display (integer->char char) p))
+                                           (loop (forward-char i) depth (fx+ lc (wchar-width wchar)) in-str?))))))
+                (begin 
+                    (set-color bg-color)
+                    (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
+                                         (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
+                                   (when (fx> r 0)
                                          (display #\space p)
-                                         (repeat (fx1+ r))))
-                               (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols))) in-str?))
-                              (else (unless in-str? 
-                                        (set-color text-color))
-                                    (if (and (fx> (wchar-width wchar) 1)
-                                             (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
-                                        ;;add dummy character for wide char wraps
-                                        (begin 
-                                               (let repeat ([times (fx- max-cols (fxmod lc max-cols))])
-                                                   (when (fx> times 0)
-                                                       (display #\space p)
-                                                       (repeat (fx1- times))))
-                                               (if (fx= char 9)
-                                                   (display (tab-string) p)
-                                                   (display (integer->char char) p))
-                                               (loop (fx+ i csize) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)) (wchar-width wchar)) in-str?))
-                                        (begin 
-                                               (if (fx= char 9)
-                                                   (display (tab-string) p)
-                                                   (display (integer->char char) p))
-                                               (loop (fx+ i csize) depth (fx+ lc (wchar-width wchar)) in-str?))))))
-                    (begin 
-                        (set-color bg-color)
-                        (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
-                                             (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
-                                       (when (fx> r 0)
-                                             (display #\space p)
-                                             (repeat (fx1- r))))))))))
+                                         (repeat (fx1- r)))))))))
 
 (define render
     (lambda () 
@@ -857,14 +851,11 @@
             (call-with-output-file file-name
                 (lambda (port)
                     (let loop ([i 0])
-                        (if (and (fx>= i gap-start)
-                                 (fx< i gap-end))
-                            (loop gap-end)
                         (when (fx< i size)
                             (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                                    [wchar (utf8-char-ref buffer i)])
                                 (put-char port (integer->char (bytevector-u32-native-ref wchar 0)))
-                                (loop (fx+ i csize)))))))
+                                (loop (forward-char i))))))
                     'truncate))))
 
 (define load-file 
@@ -964,7 +955,7 @@
         ((esc #\n) (move-gap (fx- (fold-left (lambda (acc e) (move-down acc)) gap-end (iota 5)) gap-end)))
         ((ctrl #\v) (page-down))
         ((esc #\v) (page-up))
-        ((ctrl #\w) (write-file))
+        ((ctrl #\w) (write-file) (set! bg-color 44) (render) (set! bg-color 49) (sleep (make-time 'time-duration 100000000 0)))
         ((ctrl #\x) (endwin) (exit))
         ((ctrl #\h) (if mark (set! mark #f) (set! mark gap-start)))
         ((esc #\h) (if mark (set! mark #f) (set! mark gap-start)))
