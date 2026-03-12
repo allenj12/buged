@@ -58,14 +58,11 @@
 ;;-1 will be initialized on init
 (define init-size 1024)
 (define size init-size)
-(define buffer -1)
 (define view-start 0)
 (define view-in-str? #f)
 (define stdscr -1)
 (define max-cols -1)
 (define max-rows -1)
-(define gap-start 0)
-(define gap-end init-size)
 (define mark #f)
 (define undo-point '())
 (define resize? #f)
@@ -73,6 +70,9 @@
 (define clicked-y #f)
 (define clicked-x #f)
 ;;user access
+(define-global buffer -1)
+(define-global gap-start 0)
+(define-global gap-end init-size)
 (define-global start-size init-size)
 (define-global tab-size 4)
 (define-global text-color 39)
@@ -207,7 +207,7 @@
                 (mbrtowc wchar utf8 csize mbstate)
                 wchar)))
 
-(define utf8-ref
+(define-global utf8-ref
     (lambda (bv idx)
         (let ([b (bytevector-u8-ref bv idx)])
             (cond
@@ -299,7 +299,7 @@
                 (loop (back-char i))
                 i))))
 
-(define line-start-count
+(define-global line-start-count
     (lambda (s)
         (let loop ([i s]
                    [c 0])
