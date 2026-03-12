@@ -167,7 +167,7 @@
                 (set! size nsize)
                 (set! gap-end nend))))
 
-(define move-gap 
+(define-global move-gap 
     (lambda (amount)
         (if (fx< amount 0)
             (let ([move-dis (fxmin (fxabs amount) gap-start)])
@@ -226,7 +226,11 @@
             tab-size
             (wcwidth (integer->char (bytevector-u32-native-ref wchar 0))))))
 
-(define back-char
+(define-global check-with-gap-start 
+    (lambda (i)
+        (if (fx= i gap-start) gap-end i)))
+
+(define-global back-char
     (lambda (idx)
         (if (fx<= idx 1)
             0
@@ -244,7 +248,7 @@
                             i)
                       (else (loop (fx1- i))))))))
 
-(define back-word
+(define-global back-word
     (lambda (idx)
         (let loop ([i (back-char idx)])
             (if (fx< i 1)
@@ -260,14 +264,14 @@
                         i
                         (loop (back-char i))))))))
 
-(define forward-char
+(define-global forward-char
     (lambda (idx)
             (if (fx>= idx size)
                 idx
                 (let ([new-idx (fx+ idx (utf8-size (bytevector-u8-ref buffer idx)))])
                     (if (and (fx>= new-idx gap-start) (fx< idx gap-end)) gap-end new-idx)))))
 
-(define forward-word
+(define-global forward-word
     (lambda (idx)
         (let loop ([i (forward-char idx)])
             (if (fx>= i size)
@@ -283,11 +287,11 @@
                         i
                         (loop (forward-char i))))))))
 
-(define move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
+(define-global move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
 
-(define move-forward (lambda () (move-gap (fx- (forward-char gap-end) gap-end))))
+(define-global move-forward (lambda () (move-gap (fx- (forward-char gap-end) gap-end))))
 
-(define line-start
+(define-global line-start
     (lambda (s)
         (let loop ([i s])
             (if (and (fx> i 0)
@@ -304,7 +308,7 @@
                 (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i)))))
                 (values i c)))))
 
-(define line-end
+(define-global line-end
     (lambda (s)
         (let loop ([i s])
             (if (and (fx< i size)
@@ -312,7 +316,7 @@
                 (loop (forward-char i))
                 i))))
 
-(define move-up
+(define-global move-up
     (lambda (s)
         (let-values ([(ls count) (line-start-count s)])
             (let loop ([i (line-start (back-char ls))]
@@ -341,7 +345,7 @@
                                         (else (loop (forward-char i) s1 (fx+ lc (wchar-width wchar))))))))
                 ls))))
 
-(define move-down
+(define-global move-down
     (lambda (s)
         (let-values ([(ls count) (line-start-count s)])
             (let* ([le (line-end s)]
@@ -357,7 +361,7 @@
                                 (loop (forward-char i)
                                       (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))))
 
-(define page-down
+(define-global page-down
     (lambda ()
         (move-gap (fx- view-start gap-start))
         (let loop ([i gap-end]
@@ -366,7 +370,7 @@
                  (move-gap (fx- i gap-end))
                 (loop (move-down i) (fx1- counter))))))
 
-(define page-up
+(define-global page-up
     (lambda ()
         (let loop ([i view-start]
                    [counter (fx/ max-rows 4)])
@@ -375,7 +379,7 @@
                 (loop (move-up i) (fx1- counter))))))
 
 ;;TODO update this to just use string->utf8 instead.
-(define inschs
+(define-global inschs
     (lambda (chs)
         (for-each
             (lambda (ch)
@@ -390,13 +394,13 @@
         (set! undo-list (cons (list gap-start 'delch (length chs)) undo-list))
         (set! undo-point undo-list)))
 
-(define insch (lambda (ch) (inschs (list ch))))
+(define-global insch (lambda (ch) (inschs (list ch))))
 
-(define delch
+(define-global delch
     (lambda ()
         (delete-selection (back-char gap-start))))
 
-(define delete-selection
+(define-global delete-selection
     (lambda mark?
         (let ([mark (if (null? mark?) mark (car mark?))])
             (when (not (fx= mark gap-start))
@@ -426,7 +430,7 @@
                                     (set! gap-end i))))))
                     (set! undo-point undo-list)))))
 
-(define copy-selection
+(define-global copy-selection
     (lambda ()
         (define bsize (fxabs (fx- mark gap-start)))
         (define bv (make-buffer bsize))
@@ -438,7 +442,7 @@
             (close-port out) (close-port in) (close-port err))))
 
 ;;TODO: refactor move-down/move-up to handle traversing gaps so we can reuse them
-(define jump-to
+(define-global jump-to
     (lambda (keep-mark?)
         (define bsize (fxabs (fx- mark gap-start)))
         (define bv (make-buffer bsize))
@@ -497,7 +501,7 @@
                                     (lambda (i) (fx>= i size))
                                     (lambda (i) (fx<= i 0)))]
                        [base (if forward? gap-end gap-start)])
-                    (let loop ([i (if forward? gap-end (back-char gap-start))])
+                    (let loop ([i (if forward? gap-end (check-with-gap-start (back-char gap-start)))])
                         (cond 
                             ((end-cond i)
                              #f)
@@ -580,7 +584,7 @@
                                                         (display (eval expr (interaction-environment)))
                                                         (eval expr (interaction-environment)))
                                                     (loop next-expr))))))))))))))
-(define undo
+(define-global undo
     (lambda ()
             (when (not (null? undo-point))
                 ;;marks currently not handled properly here
@@ -609,7 +613,7 @@
 ;;since we are using pbcopy with copy above
 ;;we are going to define a custom paste to avoid
 ;;the extra parens we process
-(define paste
+(define-global paste
     (lambda ()
         (let-values ([(in out err pid) (open-process-ports "pbpaste"
                                                       'block 
@@ -617,7 +621,7 @@
             (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
             (close-port in) (close-port out) (close-port err))))
 
-(define curs-yx
+(define-global curs-yx
     (lambda (pred)
         (let loop ([i view-start]
                    [counter 0]
@@ -639,7 +643,7 @@
           (and (fx>= x n)
                (fx<= x m)))))
 
-(define bound-idx
+(define-global bound-idx
     (lambda (idx)
         (if (fx>= idx gap-end)
             (fx- idx (fx- gap-end gap-start))
@@ -661,7 +665,7 @@
     (lambda ()
         (define ve (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= counter max-rows)))]) i))
         (when view-in-str? (set-color string-color))
-        (let loop ([i (if (fx= view-start gap-start) gap-end view-start)]
+        (let loop ([i (check-with-gap-start view-start)]
                    [depth -1]
                    [lc 0]
                    [in-str? view-in-str?])
@@ -781,21 +785,24 @@
 (define read-sequence
     (lambda ()
         (let ([ch (read-char)])
-            (if (char=? ch #\esc)
-                (let loop ([c (read-char)])
-                    (if (char-alphabetic? c)
-                        (list (string c))
-                        (let ([l (loop (read-char))])
-                            (cond
-                                ((and (not (char=? c#\;)) (not (char-numeric? c)) (string? (car l)) (string->number (car l)))
-                                 (cons (string c) (cons (string->number (car l)) (cdr l))))
-                                ((and (char? c) (char=? c #\;) (string? (car l)) (string->number (car l)))
-                                 (cons (string->number (car l)) (cdr l)))
-                                ((and (char? c) (char=? c #\;)) l)
-                                ((and (char-numeric? c) (string? (car l)) (string->number (car l)))
-                                 (cons (string-append (string c) (car l)) (cdr l)))
-                                (else (cons (string c) l))))))
-                ch))))
+            (cond
+              ((and (char=? ch #\esc) (char=? (peek-char) #\[))
+               (cons (string (read-char))
+                     (let loop ([c (read-char)])
+                         (if (and (char>=? c #\@) (char<=? c #\~))
+                             (list (string c))
+                             (let ([l (loop (read-char))])
+                                 (cond
+                                     ((and (not (char=? c #\;)) (not (char-numeric? c)) (string? (car l)) (string->number (car l)))
+                                      (cons (string c) (cons (string->number (car l)) (cdr l))))
+                                     ((and (char=? c #\;) (string? (car l)) (string->number (car l)))
+                                      (cons (string->number (car l)) (cdr l)))
+                                     ((and (char=? c #\;)) l)
+                                     ((and (char-numeric? c) (string? (car l)) (string->number (car l)))
+                                      (cons (string-append (string c) (car l)) (cdr l)))
+                                     (else (cons (string c) l))))))))
+              ((char=? ch #\esc) (list (string (read-char))))
+              (else ch)))))
 
 (define-global execute-binding
     (lambda (input binds)
@@ -840,7 +847,7 @@
         (when (fx> (string-length file-name) 0)
             (call-with-output-file file-name
                 (lambda (port)
-                    (let loop ([i (if (fx= 0 gap-start) gap-end 0)])
+                    (let loop ([i (check-with-gap-start 0)])
                         (when (fx< i size)
                             (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                                    [wchar (utf8-char-ref buffer i)])
