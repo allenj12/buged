@@ -838,7 +838,7 @@
         (when (fx> (string-length file-name) 0)
             (call-with-output-file file-name
                 (lambda (port)
-                    (let loop ([i 0])
+                    (let loop ([i (if (fx= 0 gap-start) gap-end 0)])
                         (when (fx< i size)
                             (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                                    [wchar (utf8-char-ref buffer i)])
