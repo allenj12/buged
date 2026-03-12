@@ -1,6 +1,6 @@
 #!chezscheme
 (import (chezscheme))
- 
+
 (suppress-greeting #t)
 
 (define *std* (load-shared-object "libSystem.dylib"))
@@ -82,6 +82,7 @@
 (define-global highlight-color 47)
 (define-global file-name "")
 (define-global undo-list '())
+(define-global config-path "~/.config/buged/config.ss")
 
 (define-syntax define-with-state
     (lambda (stx)
@@ -726,7 +727,7 @@
                                          (display #\space p)
                                          (repeat (fx1- r)))))))))
 
-(define render
+(define-global render
     (lambda () 
         (hide-cursor)
         (move 0 0)
@@ -734,7 +735,8 @@
         (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= i gap-start)))])
             (move (fx1+ y) (fx1+ x)))
         (show-cursor)
-        (display (c))))
+        (display (c))
+        (flush-output-port (current-output-port))))
 
 (define move-up-anywhere
     (lambda (s)
@@ -795,12 +797,12 @@
                                 (else (cons (string c) l))))))
                 ch))))
 
-(define execute-binding
+(define-global execute-binding
     (lambda (input binds)
         (cond
           ((null? binds) #f)
-          ((and (fixnum? (caar binds)) (list? input) (fx= (caar binds) (length input)))
-           (if (apply (cadar binds) input) #t (execute-binding input (cdr binds))))
+          ((and (procedure? (caar binds)) (list? input) (fx= (flonum->fixnum (log (procedure-arity-mask (caar binds)) 2)) (length input)))
+           (if (apply (caar binds) input) #t (execute-binding input (cdr binds))))
           ((equal? (caar binds) input) ((cadar binds)) #t)
           (else (execute-binding input (cdr binds))))))
 
@@ -833,7 +835,7 @@
         (display (c))
         (set-screen-limits)))
 
-(define write-file
+(define-global write-file
     (lambda ()
         (when (fx> (string-length file-name) 0)
             (call-with-output-file file-name
@@ -846,7 +848,7 @@
                                 (loop (forward-char i))))))
                     'truncate))))
 
-(define load-file 
+(define-global load-file 
     (lambda (filename)
         (when (not (null? filename)) (set! file-name (car filename)))
         (if (and (not (null? filename))
@@ -865,11 +867,13 @@
     (lambda (x)
         (set! resize? #t)))
 
-(define ctrl
+(define-global load-config (lambda () (when (file-exists? config-path) (load config-path))))
+
+(define-global ctrl
     (lambda (c)
         (integer->char (char- (char-upcase c) #\@))))
 
-(define esc
+(define-global esc
     (lambda (str)
         (if (char? str)
             (list (string str))
@@ -878,15 +882,15 @@
 (define-syntax make-bindings
     (lambda (stx)
         (syntax-case stx ()
-            [(_ ((lambda (args ...) body ...)))
-             #`(list #,(length (syntax->datum #'(args ...))) (lambda (args ...) body ...))]
+            [(_ (lambda))
+             #`(list lambda)]
             [(_ (binding procedure ...))
              #`(list binding (lambda () procedure ...))]
             [(_ binding ...)
              #`(list (make-bindings binding) ...)])))
 
 ;;TODO should probably change fn flags to keywords instead of #t/#f
-(define bindings
+(define-global bindings
     (make-bindings
         ((lambda (a b c d e f) (and (fx= c 65)
                                     (string=? f "M")
@@ -973,6 +977,6 @@
 (scheme-start 
     (lambda x
         (dynamic-wind 
-            (lambda () (register-signal-handler 28 resize-handler) (init) (load-file x))
+            (lambda () (register-signal-handler 28 resize-handler) (init) (load-config) (load-file x))
             (lambda () (main-loop))
             (lambda () (endwin)))))
