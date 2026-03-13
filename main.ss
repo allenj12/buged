@@ -984,6 +984,6 @@
 (scheme-start 
     (lambda x
         (dynamic-wind 
-            (lambda () (register-signal-handler 28 resize-handler) (init) (load-config) (load-file x))
+            (lambda () (register-signal-handler 28 resize-handler) (init) (unless (member "--no-config" x) (load-config)) (load-file x))
             (lambda () (main-loop))
             (lambda () (endwin)))))
