@@ -2,8 +2,59 @@
 (import (chezscheme))
 
 (suppress-greeting #t)
+(define *std* (load-shared-object #f))
 
-(define *std* (load-shared-object "libSystem.dylib"))
+(define-syntax os-switch
+    (lambda (stx)
+        (define m-type (symbol->string (machine-type)))
+        (define os
+          (cond
+            ((and (>= (string-length m-type) 3)
+                  (string=? "osx"
+                            (substring m-type
+                                       (- (string-length m-type) 3)
+                                       (string-length m-type))))
+             'osx)
+            ((and (>= (string-length m-type) 2)
+                  (member (substring m-type
+                                     (- (string-length m-type) 2)
+                                     (string-length m-type))
+                          '("ob" "nb" "fb")))
+             'bsd)
+            (else 'linux)))
+        (syntax-case stx ()
+            [(_ macos linx bsd)
+             (case os 
+                 ('osx #'macos)
+                 ('linux #'linux)
+                 ('bsd #'bsd))]
+            [(_ macos/bsd linux)
+             (case os 
+                 ('osx #'macos/bsd)
+                 ('bsd #'macos/bsd)
+                 ('linux #'linux))])))
+
+(os-switch 
+  (define-ftype termios
+      (struct
+          [c-iflag unsigned-long]
+          [c-oflag unsigned-long]
+          [c-cflag unsigned-long]
+          [c-lflag unsigned-long]
+          [c-cc (array 20 char)]
+          [c-ispeed long]
+          [c-ospeed long]))
+    
+  (define-ftype termios
+      (struct
+      [c-iflag unsigned-int]
+          [c-oflag unsigned-int]
+          [c-cflag unsigned-int]
+          [c-lflag unsigned-int]
+          [c-line unsigned-char]
+          [c-cc (array 32 char)] ; Linux uses 32 to allow for expansion/padding
+          [c-ispeed unsigned-int]
+          [c-ospeed unsigned-int])))
 
 (define-ftype winsize
     (struct
@@ -12,21 +63,19 @@
         [ws-xpixel unsigned-short]
         [ws-ypixel unsigned-short]))
 
-(define-ftype termios
-    (struct
-      [c-iflag long]
-      [c-oflag long]
-      [c-cflag long]
-      [c-lflag long]
-      [cc-t (array 20 char)]
-      [c-ispeed long]
-      [c-ospeed long]))
-
-(define TIOCGWINSZ 1074295912) ;;check spelling
+(define ECHO ((foreign-procedure #f "get_echo" () int)))
+(define ISIG ((foreign-procedure #f "get_isig" () int)))
+(define ICANON ((foreign-procedure #f "get_icanon" () int)))
+(define IXON ((foreign-procedure #f "get_ixon" () int)))
+(define IEXTEN ((foreign-procedure #f "get_iexten" () int)))
+(define ICRNL ((foreign-procedure #f "get_icrnl" () int)))
+(define TCSAFLUSH ((foreign-procedure #f "get_tcsaflush" () int)))
+(define SIGWINCH ((foreign-procedure #f "get_sigwinch" () int)))
+(define TIOCGWINSZ ((foreign-procedure #f "get_tiocgwinsz" () unsigned-long)))
+(define LC_ALL ((foreign-procedure #f "get_lc_all" () int)))
 (define ioctl (foreign-procedure (__varargs_after 2) "ioctl" (int unsigned-long (* winsize)) int))
 (define tcsetattr (foreign-procedure #f "tcsetattr" (int int (* termios)) int))
 (define tcgetattr (foreign-procedure #f "tcgetattr" (int (* termios)) int))
-
 (define setlocale (foreign-procedure #f "setlocale" (int string) string))
 (define sraise (foreign-procedure #f "raise" (int) void))
 (define wcrtomb (foreign-procedure #f "wcrtomb" (u8* wchar_t u8*) size_t))
@@ -84,6 +133,16 @@
 (define-global undo-list '())
 (define-global config-path "~/.config/buged/config.ss")
 
+(define-global copy-cmd (os-switch 
+                            "pbcopy" 
+                            (if (getenv "WAYLAND_DISPLAY") "wl-copy" "xclip -selection clipboard")
+                            "xclip -selection clipboard"))
+
+(define-global paste-cmd (os-switch
+                          "pbpaste"
+                          (if (getenv "WAYLAND_DISPLAY") "wl-paste" "xclip -selection clipboard -o")
+                          "wl-paste" "xclip -selection clipboard -o"))
+
 (define-syntax define-with-state
     (lambda (stx)
         (syntax-case stx ()
@@ -99,7 +158,6 @@
         (for-each (lambda (x) (display x p)) sequence)))
 
 (define erase (lambda () (screen-cmd #\2 #\J)))
-
 (define move (lambda (y x) (screen-cmd y #\; x #\H)))
 
 (define mouse-tracking
@@ -122,19 +180,11 @@
         (display (c))))
 
 (define hide-cursor (lambda () (screen-cmd #\? #\2 #\5 #\l)))
-
 (define show-cursor (lambda () (screen-cmd #\? #\2 #\5 #\h)))
 
 (define-with-state raw ([tios (make-ftype-pointer termios (foreign-alloc (ftype-sizeof termios)))])
     (lambda opts
         (define on? (memq 'on opts))
-        (define ECHO #x00000008)
-        (define ISIG #x00000080)
-        (define ICANON #x00000100)
-        (define IXON #x00000200)
-        (define IEXTEN #x00000400)
-        ;(define ICRNL #x00000100)
-        (define TCSAFLUSH 2)
         (tcgetattr 0 tios)
         (let ([lflag (ftype-ref termios (c-lflag) tios)]
               [iflag (ftype-ref termios (c-iflag) tios)])
@@ -288,7 +338,6 @@
                         (loop (forward-char i))))))))
 
 (define-global move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
-
 (define-global move-forward (lambda () (move-gap (fx- (forward-char gap-end) gap-end))))
 
 (define-global line-start
@@ -437,7 +486,7 @@
         (if (fx< mark gap-start)
             (bytevector-copy! buffer mark bv 0 bsize)
             (bytevector-copy! buffer gap-end bv 0 bsize))
-        (let-values ([(in out err pid) (open-process-ports "pbcopy" 'none #f)])
+        (let-values ([(in out err pid) (open-process-ports copy-cmd 'none #f)])
             (put-bytevector in bv)
             (close-port out) (close-port in) (close-port err))))
 
@@ -615,7 +664,7 @@
 ;;the extra parens we process
 (define-global paste
     (lambda ()
-        (let-values ([(in out err pid) (open-process-ports "pbpaste"
+        (let-values ([(in out err pid) (open-process-ports paste-cmd
                                                       'block 
                                                       (make-transcoder (utf-8-codec)))])
             (when (not (port-eof? out)) (inschs (string->list (get-string-all out))))
@@ -835,7 +884,7 @@
 
 (define init 
     (lambda ()
-        (setlocale 0 "en_US.UTF-8") ;;6 on linux for LC_ALL
+        (setlocale LC_ALL "en_US.UTF-8")
         (raw 'on)
         (screen-cmd #\? #\1 #\0 #\4 #\9 #\h)
         (mouse-tracking 'on)
@@ -984,6 +1033,6 @@
 (scheme-start 
     (lambda x
         (dynamic-wind 
-            (lambda () (register-signal-handler 28 resize-handler) (init) (unless (member "--no-config" x) (load-config)) (load-file x))
+            (lambda () (register-signal-handler SIGWINCH resize-handler) (init) (unless (member "--no-config" x) (load-config)) (load-file x))
             (lambda () (main-loop))
             (lambda () (endwin)))))
