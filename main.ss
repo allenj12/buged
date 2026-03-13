@@ -23,7 +23,7 @@
              'bsd)
             (else 'linux)))
         (syntax-case stx ()
-            [(_ macos linx bsd)
+            [(_ macos linux bsd)
              (case os 
                  ('osx #'macos)
                  ('linux #'linux)
@@ -51,7 +51,7 @@
           [c-oflag unsigned-int]
           [c-cflag unsigned-int]
           [c-lflag unsigned-int]
-          [c-line unsigned-char]
+          [c-line char]
           [c-cc (array 32 char)] ; Linux uses 32 to allow for expansion/padding
           [c-ispeed unsigned-int]
           [c-ospeed unsigned-int])))
