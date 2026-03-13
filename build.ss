@@ -72,7 +72,7 @@
 (let ([gcc-libs (case os
                     ['osx "-L/opt/homebrew/lib -lz -llz4 -liconv -lncurses -lpthread -ldl -lm -framework CoreFoundation -framework CoreServices"]
                     ['bsd "-L/usr/local/lib -lz -llz4 -liconv -lncurses -lpthread -lm"]
-                    ['linux "-lz -llz4 -liconv -lncurses -lpthread -ldl -lm -lrt"]
+                    ['linux "-lz -llz4 -lncurses -lpthread -ldl -lm -lrt"]
                     [else (display "unsupported os") (newline) (exit 1)])])
           (system
               (format "gcc -O3 main.c -rdynamic ~a/libkernel.a -I~a ~a -o buged"
