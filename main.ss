@@ -141,7 +141,7 @@
 (define-global paste-cmd (os-switch
                           "pbpaste"
                           (if (getenv "WAYLAND_DISPLAY") "wl-paste" "xclip -selection clipboard -o")
-                          "wl-paste" "xclip -selection clipboard -o"))
+                          "xclip -selection clipboard -o"))
 
 (define-syntax define-with-state
     (lambda (stx)
