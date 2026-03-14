@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <string.h>
 #include <termios.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -18,13 +16,7 @@ int get_icrnl() { return ICRNL; }
 int get_tcsaflush() { return TCSAFLUSH; }
 unsigned long get_tiocgwinsz() { return TIOCGWINSZ; }
 int get_lc_all() { return LC_ALL; }
-int get_sigwinch() {
-    #ifdef SIGWINCH
-        return SIGWINCH;
-    #else
-        return 28; 
-    #endif
-}
+int get_sigwinch() { return SIGWINCH; }
 
 int main(int argc, const char *argv[]) {
     Sscheme_init(NULL);
@@ -34,6 +26,8 @@ int main(int argc, const char *argv[]) {
     Sregister_boot_file_bytes("main.boot", (void *)main_boot, (iptr)main_boot_len);
 
     Sbuild_heap(NULL, NULL);
+
+    Senable_expeditor(0);
 
     Sscheme_start(argc, argv); 
 

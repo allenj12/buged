@@ -2,6 +2,7 @@
 (import (chezscheme))
 
 (suppress-greeting #t)
+
 (define *std* (load-shared-object #f))
 
 (define-syntax os-switch
@@ -47,12 +48,12 @@
     
   (define-ftype termios
       (struct
-      [c-iflag unsigned-int]
+          [c-iflag unsigned-int]
           [c-oflag unsigned-int]
           [c-cflag unsigned-int]
           [c-lflag unsigned-int]
           [c-line char]
-          [c-cc (array 32 char)] ; Linux uses 32 to allow for expansion/padding
+          [c-cc (array 32 char)]
           [c-ispeed unsigned-int]
           [c-ospeed unsigned-int])))
 
@@ -180,6 +181,7 @@
         (display (c))))
 
 (define hide-cursor (lambda () (screen-cmd #\? #\2 #\5 #\l)))
+
 (define show-cursor (lambda () (screen-cmd #\? #\2 #\5 #\h)))
 
 (define-with-state raw ([tios (make-ftype-pointer termios (foreign-alloc (ftype-sizeof termios)))])
@@ -338,6 +340,7 @@
                         (loop (forward-char i))))))))
 
 (define-global move-back (lambda () (move-gap (fx- (back-char gap-start) gap-start))))
+
 (define-global move-forward (lambda () (move-gap (fx- (forward-char gap-end) gap-end))))
 
 (define-global line-start
@@ -807,23 +810,26 @@
                          (loop (fx+ counter wc-width) (back-char i))))))))
 
 (define set-view-in-str
-    (lambda ()
-        (set! view-in-str?
-            (fxodd?
-                (let loop ([i 0]
-                           [count 0])
-                    (cond 
-                        ((fx>= i view-start) count)
-                        ((and (fx= 34 (bytevector-u8-ref buffer i))
-                              (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
-                         (loop (forward-char i) (fx1+ count)))
-                        (else (loop (forward-char i) count))))))))
+    (lambda (new-view-start)
+        (define top-view (fxmax new-view-start view-start))
+        (define bot-view (fxmin new-view-start view-start))
+        (define from-zero? (fx> (fx- top-view bot-view) new-view-start))
+        (define end (if from-zero? new-view-start top-view))
+        (let loop ([i (if from-zero? 0 bot-view)]
+                   [count 0])
+                (cond 
+                    ((fx>= i end) (when (fxodd? count) (set! view-in-str? (not view-in-str?))))
+                    ((and (fx= 34 (bytevector-u8-ref buffer i))
+                          (not (escaped? i)))
+                     (loop (forward-char i) (fx1+ count)))
+                    (else (loop (forward-char i) count))))))
 
 (define center
     (lambda (s counter)
         (if (fx< counter 0)
-            (begin (set! view-start (line-start-visible s))
-                   (set-view-in-str))
+            (let ([new-view-start (line-start-visible s)])
+                (set-view-in-str new-view-start)
+                (set! view-start new-view-start))
             (center (move-up-anywhere s) (fx1- counter)))))
 
 (define check-view
@@ -951,13 +957,15 @@
         ((lambda (a b c d e f) (and (fx= c 65)
                                     (string=? f "M")
                                     (move-gap (fx- (move-down gap-end) gap-end))
-                                    (set! view-start (move-down view-start))
-                                    (set-view-in-str))))
+                                    (let ([new-view-start (move-down view-start)])
+                                        (set-view-in-str new-view-start)
+                                        (set! view-start new-view-start)))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
-                                    (set! view-start (move-up view-start))
-                                    (move-gap (fx- (move-up gap-start) gap-start))
-                                    (set-view-in-str))))
+                                    (let ([new-view-start (move-up view-start)])
+                                        (set-view-in-str new-view-start)
+                                        (set! view-start new-view-start)
+                                        (move-gap (fx- (move-up gap-start) gap-start))))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "M")
                                     (let-values ([(i y x) (curs-yx 

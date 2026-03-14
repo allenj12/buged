@@ -25,6 +25,8 @@
                                 (fprintf out "0x~2,'0x" byte)
                                 (unless (port-eof? in)
                                         (fprintf out ", "))
+                                (when (fxzero? (fxmod (fx1+ count) 20))
+                                    (fprintf out "\n"))
                                 (loop (get-u8 in) (fx1+ count)))))
                     (close-port in))
                 '(truncate)))))
@@ -69,6 +71,9 @@
                     '("ob" "nb" "fb"))) 'bsd)
       (else 'linux)))
 
+;ncurses and threads can be removed as dependencies if you build chez scheme without them
+;if you remove ncurses the (new-cafe) command will have less interactive features
+;if you remove ncurses you can also remove the Senable_expeditor(0) in main.c
 (let ([gcc-libs (case os
                     ['osx "-L/opt/homebrew/lib -lz -llz4 -liconv -lncurses -lpthread -ldl -lm -framework CoreFoundation -framework CoreServices"]
                     ['bsd "-L/usr/local/lib -lz -llz4 -liconv -lncurses -lpthread -lm"]
