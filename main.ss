@@ -284,21 +284,20 @@
 
 (define-global back-char
     (lambda (idx)
-        (if (fx<= idx 1)
-            0
-            (let loop ([i (fx1- idx)])
-                (cond ((and (fx>= i gap-start)
-                            (fx< i gap-end))
-                        (loop (fx1- gap-start)))
-                      ((let ([b (bytevector-u8-ref buffer i)])
-                            (or
-                                (fx= (fxand b #x80) 0)
-                                (fx= (fxand b #xE0) #xC0)
-                                (fx= (fxand b #xF0) #xE0)
-                                (fx= (fxand b #xF8) #xF0)
-                                (fx< i 1)))
-                            i)
-                      (else (loop (fx1- i))))))))
+        (let loop ([i (fx1- idx)])
+            (cond ((fx<= i 0) 0)
+                  ((and (fx>= i gap-start)
+                        (fx< i gap-end))
+                    (loop (fx1- gap-start)))
+                  ((let ([b (bytevector-u8-ref buffer i)])
+                        (or
+                            (fx= (fxand b #x80) 0)
+                            (fx= (fxand b #xE0) #xC0)
+                            (fx= (fxand b #xF0) #xE0)
+                            (fx= (fxand b #xF8) #xF0)
+                            (fx< i 1)))
+                        i)
+                  (else (loop (fx1- i)))))))
 
 (define-global back-word
     (lambda (idx)
@@ -371,11 +370,11 @@
 (define-global move-up
     (lambda (s)
         (let-values ([(ls count) (line-start-count s)])
-            (let loop ([i (line-start (back-char ls))]
+            (let loop ([i (check-with-gap-start (line-start (back-char ls)))]
                        [c 0])
                     (if (or (fx>= c count)
                             (fx= (utf8-ref buffer i) 10))
-                        i
+                        (bound-idx i)
                         (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
 
 ;;TODO this needs to be refactored heavily and be made more efficient
@@ -811,18 +810,20 @@
 
 (define set-view-in-str
     (lambda (new-view-start)
-        (define top-view (fxmax new-view-start view-start))
-        (define bot-view (fxmin new-view-start view-start))
-        (define from-zero? (fx> (fx- top-view bot-view) new-view-start))
-        (define end (if from-zero? new-view-start top-view))
-        (let loop ([i (if from-zero? 0 bot-view)]
-                   [count 0])
-                (cond 
-                    ((fx>= i end) (when (fxodd? count) (set! view-in-str? (not view-in-str?))))
-                    ((and (fx= 34 (bytevector-u8-ref buffer i))
-                          (not (escaped? i)))
-                     (loop (forward-char i) (fx1+ count)))
-                    (else (loop (forward-char i) count))))))
+        (if (fxzero? new-view-start)
+            (set! view-in-str? #f)
+            (let* ([top-view (fxmax new-view-start view-start)]
+                   [bot-view (fxmin new-view-start view-start)]
+                   [from-zero? (fx> (fx- (bound-idx top-view) (bound-idx bot-view)) new-view-start)]
+                   [end (if from-zero? new-view-start top-view)])
+                (let loop ([i (check-with-gap-start (if from-zero? 0 bot-view))]
+                           [count 0])
+                        (cond 
+                            ((fx>= i end) (when (fxodd? count) (if from-zero? (set! view-in-str? #t) (set! view-in-str? (not view-in-str?)))))
+                            ((and (fx= 34 (bytevector-u8-ref buffer i))
+                                  (not (escaped? i)))
+                             (loop (forward-char i) (fx1+ count)))
+                            (else (loop (forward-char i) count))))))))
 
 (define center
     (lambda (s counter)
