@@ -414,8 +414,7 @@
 
 (define-global page-down
     (lambda ()
-        (move-gap (fx- view-start gap-start))
-        (let loop ([i gap-end]
+        (let loop ([i view-start]
                    [counter (fx1+ max-rows)])
             (if (fx= counter 0)
                  (move-gap (fx- i gap-end))
@@ -819,12 +818,13 @@
                 (let loop ([i (check-with-gap-start (if from-zero? 0 bot-view))]
                            [count 0])
                         (cond 
-                            ((fx>= i end) (when (fxodd? count) (if from-zero? (set! view-in-str? #t) (set! view-in-str? (not view-in-str?)))))
+                            ((fx>= i end) (cond
+                                            (from-zero? (set! view-in-str? (fxodd? count)))
+                                            ((fxodd? count) (set! view-in-str? (not view-in-str?)))))
                             ((and (fx= 34 (bytevector-u8-ref buffer i))
                                   (not (escaped? i)))
                              (loop (forward-char i) (fx1+ count)))
                             (else (loop (forward-char i) count))))))))
-
 (define center
     (lambda (s counter)
         (if (fx< counter 0)
@@ -835,8 +835,16 @@
 
 (define check-view
     (lambda ()
-        (when (or (fx< gap-start view-start) (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= i gap-start)))]) (fx>= y max-rows)))
-            (center gap-start (fx/ max-rows 2)))))
+        (let ([view-past-start? (fx> view-start gap-start)])
+            (cond
+              ((and view-past-start? (fx> (fx+ view-start (fx- gap-end gap-start)) size))
+               (set! view-start gap-start)
+               (center gap-start (fx/ max-rows 2)))
+              (view-past-start?
+               (set! view-start (fx+ view-start (fx- gap-end gap-start)))
+               (center gap-start (fx/ max-rows 2)))
+              ((let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= i gap-start)))]) (fx>= y max-rows))
+               (center gap-start (fx/ max-rows 2)))))))
 
 (define read-sequence
     (lambda ()
