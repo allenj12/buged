@@ -673,7 +673,7 @@
 
 (define-global curs-yx
     (lambda (pred)
-        (let loop ([i view-start]
+        (let loop ([i (check-with-gap-start view-start)]
                    [counter 0]
                    [lc 0])
             (let* ([wchar (utf8-char-ref buffer i)])
@@ -965,10 +965,11 @@
     (make-bindings
         ((lambda (a b c d e f) (and (fx= c 65)
                                     (string=? f "M")
-                                    (move-gap (fx- (move-down gap-end) gap-end))
-                                    (let ([new-view-start (move-down view-start)])
-                                        (set-view-in-str new-view-start)
-                                        (set! view-start new-view-start)))))
+                                    (let* ([gap-at-view-start? (fx= gap-start view-start)])
+                                        (move-gap (fx- (move-down gap-end) gap-end))
+                                        (let ([new-view-start (if gap-at-view-start? gap-start (move-down view-start))])
+                                            (set-view-in-str new-view-start)
+                                            (set! view-start new-view-start))))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
                                     (let ([new-view-start (move-up view-start)])
@@ -980,9 +981,7 @@
                                     (let-values ([(i y x) (curs-yx 
                                                               (lambda (i counter lc)
                                                                   (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
-                                        (if (fx>= (back-char i) gap-end)
-                                            (move-gap (fx- (back-char i) gap-end))
-                                            (move-gap (fx- (back-char i) gap-start)))
+                                        (move-gap (fx- (bound-idx (fxmax (back-char i) view-start)) gap-start))
                                         (unless (and clicked-y clicked-x)
                                             (set! mark gap-start)
                                             (set! clicked-y y)
@@ -992,9 +991,7 @@
                                     (let-values ([(i y x) (curs-yx 
                                                               (lambda (i counter lc)
                                                                   (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
-                                        (if (fx>= (back-char i) gap-end)
-                                            (move-gap (fx- (back-char i) gap-end))
-                                            (move-gap (fx- (back-char i) gap-start)))))))
+                                        (move-gap (fx- (bound-idx (fxmax (back-char i) view-start)) gap-start))))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "m")
                                     (let-values ([(i y x) (curs-yx 
