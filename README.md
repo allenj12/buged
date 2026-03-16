@@ -80,6 +80,7 @@ Here is my [example config](https://github.com/allenj12/buged-config)
 
 ## Build Dependencies
 * chez scheme
+* gcc
 
 ## Build
 
