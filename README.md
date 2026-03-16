@@ -52,7 +52,7 @@ In this case if the command is not valid, nothing will happen and the text will 
 | **Ctrl+R**       | Find match (forward, keep mark) | Search forward while keeping the selection mark.              |
 | **Meta+R**       | Find match (reverse, keep mark) | Search backward while keeping the selection mark.             |
 | **Meta+Shift+R** | Store match (keep mark)         | Store match pattern without clearing mark.                    |
-| **Ctrl+O**       | Shell Execute                   | Execute command in forward direction.                         |
+| **Ctrl+O**       | Shell Execute                   | Execute command in forward direction. Default: last command   |
 | **Meta+O**       | Shell Execute (preserve)        | Execute command while preserving the input command.           |
 | **Meta+Shift+O** | Scheme execute                  | Execute Scheme code.                                          |
 | **Ctrl+S**       | New café                        | Enter a **Scheme REPL (`new-cafe`)** inside the editor.       |
