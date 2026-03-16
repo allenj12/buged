@@ -354,10 +354,15 @@
     (lambda (s)
         (let loop ([i s]
                    [c 0])
-            (if (and (fx> i 0)
-                     (not (fx= (utf8-ref buffer (back-char i)) 10)))
-                (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i)))))
-                (values i c)))))
+            (cond
+              ((and (fx> i 0)
+                    (not (fx= (utf8-ref buffer (back-char i)) 10))
+                    (fx= (back-char i) gap-start))
+               (loop (back-char i) c))
+              ((and (fx> i 0)
+                    (not (fx= (utf8-ref buffer (back-char i)) 10)))
+               (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i))))))
+              (else (values i c))))))
 
 (define-global line-end
     (lambda (s)
