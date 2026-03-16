@@ -1,6 +1,6 @@
 # Buged - A minimal editor
 
-![bugedDemo](https://github.com/user-attachments/assets/c822e318-4a59-48e7-a035-4648c2455574)
+![bugedDemo2](https://github.com/user-attachments/assets/b10de3d0-4fd2-4431-9084-b56d2e797c74)
 
 ## Features
 * Minimal UI - just the text
