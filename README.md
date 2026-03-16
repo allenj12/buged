@@ -15,6 +15,9 @@
     * ncurses is used for chez scheme but is removable if chez scheme is rebuilt without it, and not using interactive expeditor features (repl)
 
 ## Usage
+
+### Commands
+
 Commands that require some sort of text input require the section of that text to execute.
 
 For example if you want to jump to line number '10':
@@ -22,6 +25,18 @@ For example if you want to jump to line number '10':
 **ctrl+h** (set the mark), enter number **10** (text should already be highlighted now), **ctrl+g**.
 
 In this case if the command is not valid, nothing will happen and the text will still be there for you to edit.
+
+### Config files
+
+Config files are just chez scheme files, buged looks for config files at
+
+```
+~/.config/buged/config.ss
+```
+
+You can avoid loading the config with the **--no-config** option.
+
+Here is my [example config](https://github.com/allenj12/buged-config)
 
 ## Default keybinds
 | Key              | Action                          | Description                                                   |

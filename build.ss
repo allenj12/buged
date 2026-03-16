@@ -50,8 +50,6 @@
     (display "could not find scheme installation") (newline)
     (exit 1))
 
-(file-exists? (format "~a/~a.boot" lib-dir "scheme"))
-
 (unless (file-exists? "scheme_boot.h")
     (boot->cheader (format "~a/scheme.boot" lib-dir) "scheme_boot.h" "scheme_boot"))
 
