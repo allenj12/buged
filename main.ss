@@ -357,16 +357,13 @@
             (cond
               ((and (fx> i 0)
                     (not (fx= (utf8-ref buffer (back-char i)) 10))
-                    (fx= (back-char i) gap-start))
-               (loop (back-char i) c))
-              ((and (fx> i 0)
-                    (not (fx= (utf8-ref buffer (back-char i)) 10)))
+                    (not (fx= (back-char i) 0)))
                (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i))))))
               (else (values i c))))))
 
 (define-global line-end
     (lambda (s)
-        (let loop ([i s])
+        (let loop ([i (check-with-gap-start s)])
             (if (and (fx< i size)
                      (not (fx= (utf8-ref buffer i) 10)))
                 (loop (forward-char i))
@@ -375,11 +372,12 @@
 (define-global move-up
     (lambda (s)
         (let-values ([(ls count) (line-start-count s)])
-            (let loop ([i (check-with-gap-start (line-start (back-char ls)))]
+            (let loop ([i (line-start (back-char ls))]
                        [c 0])
-                    (if (or (fx>= c count)
+                    (if (or (fx<= i 0)
+                            (fx>= c count)
                             (fx= (utf8-ref buffer i) 10))
-                        (bound-idx i)
+                        i
                         (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
 
 ;;TODO this needs to be refactored heavily and be made more efficient
@@ -397,7 +395,7 @@
                           (let* ([wchar (utf8-char-ref buffer i)])
                                     (cond
                                         ((fx> lc (fx- max-cols (wchar-width wchar)))
-                                         (loop i i 0)) ;;forward-char here?
+                                         (loop i i 0))
                                         (else (loop (forward-char i) s1 (fx+ lc (wchar-width wchar))))))))
                 ls))))
 
@@ -970,17 +968,18 @@
     (make-bindings
         ((lambda (a b c d e f) (and (fx= c 65)
                                     (string=? f "M")
-                                    (let* ([gap-at-view-start? (fx= gap-start view-start)])
-                                        (move-gap (fx- (move-down gap-end) gap-end))
-                                        (let ([new-view-start (if gap-at-view-start? gap-start (move-down view-start))])
-                                            (set-view-in-str new-view-start)
-                                            (set! view-start new-view-start))))))
+                                    (let ([new-view-start (move-down view-start)])
+                                        (set-view-in-str (bound-idx new-view-start))
+                                        (set! view-start (bound-idx new-view-start))
+                                        (when (fx> new-view-start gap-end)
+                                            (move-gap (fx- (move-down gap-end) gap-end)))))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
                                     (let ([new-view-start (move-up view-start)])
                                         (set-view-in-str new-view-start)
                                         (set! view-start new-view-start)
-                                        (move-gap (fx- (move-up gap-start) gap-start))))))
+                                        (when (fx<= new-view-start (fold-left (lambda (a x) (move-up a)) gap-start (iota max-rows)))
+                                            (move-gap (fx- (move-up gap-start) gap-start)))))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "M")
                                     (let-values ([(i y x) (curs-yx 
