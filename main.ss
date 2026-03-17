@@ -355,9 +355,8 @@
         (let loop ([i s]
                    [c 0])
             (cond
-              ((and (fx> i 0)
-                    (not (fx= (utf8-ref buffer (back-char i)) 10))
-                    (not (fx= (back-char i) 0)))
+              ((and (fx> (bound-idx i) 0)
+                    (not (fx= (utf8-ref buffer (back-char i)) 10)))
                (loop (back-char i) (fx+ c (wchar-width (utf8-char-ref buffer (back-char i))))))
               (else (values i c))))))
 
@@ -372,10 +371,9 @@
 (define-global move-up
     (lambda (s)
         (let-values ([(ls count) (line-start-count s)])
-            (let loop ([i (line-start (back-char ls))]
+            (let loop ([i (check-with-gap-start (line-start (back-char ls)))]
                        [c 0])
-                    (if (or (fx<= i 0)
-                            (fx>= c count)
+                    (if (or (fx>= c count)
                             (fx= (utf8-ref buffer i) 10))
                         i
                         (loop (forward-char i) (fx+ c (wchar-width (utf8-char-ref buffer i)))))))))
@@ -427,9 +425,9 @@
     (lambda ()
         (let loop ([i view-start]
                    [counter (fx/ max-rows 4)])
-            (if (fx= counter 0)
+           (if (fx= counter 0)
                  (move-gap (fx- i gap-start))
-                (loop (move-up i) (fx1- counter))))))
+                (loop (bound-idx (move-up i)) (fx1- counter))))))
 
 ;;TODO update this to just use string->utf8 instead.
 (define-global inschs
@@ -975,17 +973,21 @@
                                             (move-gap (fx- (move-down gap-end) gap-end)))))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
-                                    (let ([new-view-start (move-up view-start)])
+                                    (let ([new-view-start (bound-idx (move-up view-start))])
                                         (set-view-in-str new-view-start)
                                         (set! view-start new-view-start)
                                         (when (fx<= new-view-start (fold-left (lambda (a x) (move-up a)) gap-start (iota max-rows)))
-                                            (move-gap (fx- (move-up gap-start) gap-start)))))))
+                                            (move-gap (fx- (bound-idx (move-up gap-start)) gap-start)))))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "M")
                                     (let-values ([(i y x) (curs-yx 
                                                               (lambda (i counter lc)
-                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
-                                        (move-gap (fx- (bound-idx (fxmax (back-char i) view-start)) gap-start))
+                                                                  (or (fx>= counter e)
+                                                                      (and (fx>= (fx1+ counter) e) 
+                                                                          (or (let-values ([(s count) (line-start-count (line-end i))])
+                                                                                       (fx= lc count))     
+                                                                              (fx>= (fx1+ lc) d))))))])
+                                        (move-gap (fx- (bound-idx i) gap-start))
                                         (unless (and clicked-y clicked-x)
                                             (set! mark gap-start)
                                             (set! clicked-y y)
@@ -994,13 +996,21 @@
                                     (string=? f "M")
                                     (let-values ([(i y x) (curs-yx 
                                                               (lambda (i counter lc)
-                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
-                                        (move-gap (fx- (bound-idx (fxmax (back-char i) view-start)) gap-start))))))
+                                                                  (or (fx>= counter e)
+                                                                      (and (fx>= (fx1+ counter) e) 
+                                                                          (or (let-values ([(s count) (line-start-count (line-end i))])
+                                                                                       (fx= lc count))     
+                                                                              (fx>= (fx1+ lc) d))))))])
+                                        (move-gap (fx- (bound-idx i) gap-start))))))
         ((lambda (a b c d e f) (and (fx= c 0)
                                     (string=? f "m")
                                     (let-values ([(i y x) (curs-yx 
                                                               (lambda (i counter lc)
-                                                                  (or (fx>= counter e) (and (fx>= (fx1+ counter) e) (fx>= lc d)))))])
+                                                                  (or (fx>= counter e)
+                                                                      (and (fx>= (fx1+ counter) e) 
+                                                                          (or (let-values ([(s count) (line-start-count (line-end i))])
+                                                                                       (fx= lc count))     
+                                                                              (fx>= (fx1+ lc) d))))))])
                                         (when (and (fx= clicked-y y) (fx= clicked-x x))
                                             (set! mark #f))
                                         (set! clicked-y #f)
@@ -1015,8 +1025,8 @@
         ((ctrl #\l) (center gap-start (fx/ max-rows 2)))
         ((ctrl #\e) (move-gap (fx- (line-end gap-end) gap-end)))
         ((ctrl #\a) (move-gap (fx- (line-start gap-start) gap-start)))
-        ((ctrl #\p) (move-gap (fx- (move-up gap-start) gap-start)))
-        ((esc #\p) (move-gap (fx- (fold-left (lambda (acc e) (move-up acc)) gap-start (iota 5)) gap-start)))
+        ((ctrl #\p) (move-gap (fx- (bound-idx (move-up gap-start)) gap-start)))
+        ((esc #\p) (move-gap (fx- (fold-left (lambda (acc e) (bound-idx (move-up acc))) gap-start (iota 5)) gap-start)))
         ((ctrl #\n) (move-gap (fx- (move-down gap-end) gap-end)))
         ((esc #\n) (move-gap (fx- (fold-left (lambda (acc e) (move-down acc)) gap-end (iota 5)) gap-end)))
         ((ctrl #\v) (page-down))
