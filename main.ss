@@ -1,7 +1,8 @@
 #!chezscheme
 (import (chezscheme))
-
 (suppress-greeting #t)
+
+(let ([lib-dirs (getenv "CHEZSCHEMELIBDIRS")]) (when lib-dirs (library-directories lib-dirs)))
 
 (define *std* (load-shared-object #f))
 
