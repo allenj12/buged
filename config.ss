@@ -43,33 +43,29 @@
 
 (define buged-c-indent
   (lambda ()
-    (let* ([open-brace (char->integer #\{)]
-           [close-brace (char->integer #\})]
-           [space (char->integer #\space)]
-           [tab (char->integer #\tab)]
-           [newline (char->integer #\newline)])
-      (define get-leading-indent
-          (lambda (idx)
-              (let-values ([(line-start i) (buged-line-start-count idx)])
-                  (let count-loop ([pos line-start] [count 0])
-                    (let ([char (buged-utf8-ref buged-buffer pos)])
-                        (cond
-                            ((fx= char space) (count-loop (buged-forward-char pos) (fx+ count 1)))
-                            ((fx= char tab)   (count-loop (buged-forward-char pos) (fx+ count buged-tab-size)))
-                            (else count)))))))
+    (let ([open-paren? (lambda (i) (memq (buged-utf8-ref buged-buffer i) (map char->integer '(#\(  #\{))))]
+          [close-paren? (lambda (i) (memq (buged-utf8-ref buged-buffer i) (map char->integer '(#\) #\}))))]
+          [whitespace? (lambda (i) (memq (buged-utf8-ref buged-buffer i) (map char->integer '(#\space #\tab))))]
+          [newline? (lambda (i) (fx= (buged-utf8-ref buged-buffer i) (char->integer #\newline)))])
       (let loop ([depth 0]
-                 [i (buged-check-with-gap-start (buged-back-char buged-gap-start))])
+                 [i (buged-check-with-gap-start (buged-back-char buged-gap-start))]
+                 [count #f])
         (cond
+          ((and count (or (fx<= i 0) (newline? i))) (fx+ count buged-tab-size))
           ((fx<= i 0) 0)
-          ((and (fx= depth 0) (fx= (buged-utf8-ref buged-buffer i) open-brace))
-           (fx+ buged-tab-size (get-leading-indent i)))
-          ((fx= (buged-utf8-ref buged-buffer i) close-brace)
-           (loop (fx1- depth) (buged-back-char i)))
-          ((fx= (buged-utf8-ref buged-buffer i) open-brace)
-           (loop (fx1+ depth) (buged-back-char i)))
-          ((and (fx= depth 0) (fx= (buged-utf8-ref buged-buffer i) newline))
-           (get-leading-indent i))
-          (else (loop depth (buged-back-char i))))))))
+          ((and (not count) (fx= depth 0) (open-paren? i))
+           (loop depth (buged-back-char i) 0))
+          ((and (not count) (close-paren? i))
+           (loop (fx1- depth) (buged-back-char i) count))
+          ((and (not count) (open-paren? i))
+           (loop (fx1+ depth) (buged-back-char i) count))
+          ((and count (not (whitespace? i)))
+           (loop depth (buged-back-char i) 0))
+          ((fx= (buged-utf8-ref buged-buffer i) (char->integer #\tab))
+           (loop depth (buged-back-char i) (fx+ buged-tab-size count)))
+          (count
+           (loop depth (buged-back-char i) (fx1+ count)))
+          (else (loop depth (buged-back-char i) count)))))))
 
 (define buged-insert-indentation
     (lambda ()
