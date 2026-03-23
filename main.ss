@@ -552,12 +552,10 @@
                        [incr (if forward? forward-char back-char)]
                        [end-cond (if forward?
                                     (lambda (i) (fx>= i size))
-                                    (lambda (i) (fx< i 0)))]
+                                    (lambda (i) (fx<= (bound-idx i) 0)))]
                        [base (if forward? gap-end gap-start)])
                     (let loop ([i (if forward? gap-end (back-char gap-start))])
                         (cond
-                            ((end-cond i)
-                             #f)
                             ((buffer-match? i bv)
                              (move-gap (if forward?
                                            (fx+ i (bytevector-length bv))
@@ -567,6 +565,8 @@
                                        (if forward?
                                          (fx- i (fx- gap-end gap-start))
                                          (fx+ i (bytevector-length bv))))))
+                            ((end-cond i)
+                             #f)
                             (else
                              (loop (incr i)))))))))
 
