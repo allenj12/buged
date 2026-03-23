@@ -1078,4 +1078,4 @@
         (dynamic-wind 
             (lambda () (register-signal-handler SIGWINCH resize-handler) (init) (load-file x) (unless (member "--no-config" x) (load-config)))
             (lambda () (main-loop))
-            (lambda () (endwin) (debug)))))
+            (lambda () (endwin)))))
