@@ -9,7 +9,6 @@
 * Scheme code execution
 * Live customization with chez scheme
 * Copy/Paste shared with OS clipboard if using (pbpaste & pbcopy)/xclip/(wl-copy & wl-paste)
-* Rainbow parens
 * Mouse support
 * Minimal dependencies - editor itself uses termios for display.
     * ncurses is used for chez scheme but is removable if chez scheme is rebuilt without it, and not using interactive expeditor features (repl)
@@ -36,7 +35,7 @@ Config files are just chez scheme files, buged looks for config files at
 
 You can avoid loading the config with the **--no-config** option.
 
-Here is my [example config](https://github.com/allenj12/buged-config)
+An example config is now included that has C and Scheme support for syntax highlighting and auto indenting.
 
 ## Default keybinds
 | Key              | Action                          | Description                                                   |

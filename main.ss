@@ -108,9 +108,6 @@
 
 ;;-1 will be initialized on init
 (define init-size 1024)
-(define size init-size)
-(define view-start 0)
-(define view-in-str? #f)
 (define stdscr -1)
 (define max-cols -1)
 (define max-rows -1)
@@ -124,6 +121,8 @@
 (define-global buffer -1)
 (define-global gap-start 0)
 (define-global gap-end init-size)
+(define-global view-start 0)
+(define-global size init-size)
 (define-global start-size init-size)
 (define-global tab-size 4)
 (define-global text-color 39)
@@ -134,8 +133,10 @@
 (define-global file-name "")
 (define-global undo-list '())
 (define-global config-path "~/.config/buged/config.ss")
-(define-global token-break-list (map char->integer '(#\( #\[ #\{ #\) #\} #\] #\space #\tab #\newline #\" #\` #\@)))
-(define-global keyword-highlights `())
+(define-global token-break-list '())
+(define-global highlight-rules `())
+(define-global highlight-sections '())
+(define-global view-state #f)
 
 (define-global copy-cmd (os-switch 
                             "pbcopy" 
@@ -339,8 +340,8 @@
                                                               0))])
                    (if (and (char-whitespace? cur-ch)
                              (not (char-whitespace? back-ch)))
-                        i
-                        (loop (forward-char i))))))))
+                       i
+                       (loop (forward-char i))))))))
 
 (define-global move-back (lambda () (move-gap (back-char gap-end))))
 
@@ -523,16 +524,16 @@
                         (else
                          (loop ln (fx+ i (utf8-size (bytevector-u8-ref buffer i)))))))))))
 
-(define buffer-match?
+(define-global buffer-match?
     (lambda (idx bv)
-        (let loop ([i idx]
+        (let loop ([i (check-with-gap-start idx)]
                    [bv-i 0])
         (cond
             ((fx>= bv-i (bytevector-length bv)) #t)
-            ((or (fx>= i size) (fx<= i 0)) #f)
+            ((or (fx>= i size) (fx< i 0)) #f)
             ((not (fx= (utf8-ref buffer i) (utf8-ref bv bv-i)))
              #f)
-            (else (loop (fx+ i (utf8-size (bytevector-u8-ref buffer i)))
+            (else (loop (forward-char i)
                         (fx+ bv-i (utf8-size (bytevector-u8-ref bv bv-i)))))))))
 
 (define-with-state find-match ([bv #f]
@@ -551,14 +552,14 @@
                        [incr (if forward? forward-char back-char)]
                        [end-cond (if forward?
                                     (lambda (i) (fx>= i size))
-                                    (lambda (i) (fx<= i 0)))]
+                                    (lambda (i) (fx< i 0)))]
                        [base (if forward? gap-end gap-start)])
-                    (let loop ([i (if forward? gap-end (check-with-gap-start (back-char gap-start)))])
-                        (cond 
+                    (let loop ([i (if forward? gap-end (back-char gap-start))])
+                        (cond
                             ((end-cond i)
                              #f)
                             ((buffer-match? i bv)
-                             (move-gap (if forward? 
+                             (move-gap (if forward?
                                            (fx+ i (bytevector-length bv))
                                            i))
                              (when (not (memq 'keep-mark opts))
@@ -644,9 +645,9 @@
                       [type (cadar undo-point)]
                       [arg (caddar undo-point)]
                       [point undo-point])               
-                    (move-gap pos)
+                    (move-gap (if (fx> pos gap-start) (fx+ pos (fx- gap-end gap-start)) pos))
                     (if (eq? type 'insch)
-                        (begin 
+                        (begin
                             (bytevector-copy! arg 0 buffer gap-start (bytevector-length arg))
                             ;;should be safe without grow since we are explicitly in undo state
                             (set! gap-start (fx+ gap-start (bytevector-length arg)))
@@ -707,7 +708,7 @@
     (lambda ()
         (list->string (map (lambda (x) #\space) (iota tab-size)))))
 
-(define escaped?
+(define-global escaped?
     (lambda (idx)
         (and (fx= 92 (bytevector-u8-ref buffer (back-char idx)))
              (or (not (fx= 92 (bytevector-u8-ref buffer (back-char (back-char idx)))))
@@ -715,23 +716,25 @@
 
 (define-global next-word
     (lambda (idx)
-        (if (memq (utf8-ref buffer idx) token-break-list)
-            (string (integer->char (utf8-ref buffer idx)))
-            (list->string
-                (let loop ([i idx]
-                           [count 0])
-                    (if (or (fx>= i size) (fx> count 20) (memq (utf8-ref buffer i) token-break-list))
-                        '()
-                        (cons (integer->char (bytevector-u32-native-ref (utf8-char-ref buffer i) 0)) (loop (forward-char i) (fx1+ count)))))))))
-        
-(define draw 
+        (if (fx>= idx size)
+            ""
+            (if (memq (utf8-ref buffer idx) token-break-list)
+                (string (integer->char (utf8-ref buffer idx)))
+                (list->string
+                    (let loop ([i idx]
+                               [count 0])
+                        (if (or (fx>= i size) (fx> count 20) (memq (utf8-ref buffer i) token-break-list))
+                            '()
+                            (cons (integer->char (bytevector-u32-native-ref (utf8-char-ref buffer i) 0)) (loop (forward-char i) (fx1+ count))))))))))
+
+(define draw
     (lambda ()
+        (define last-post #f)
         (define ve (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= counter max-rows)))]) i))
-        (when view-in-str? (set-color string-color))
+        (for-each (lambda (l) (let ([start-draw (assq 'start-draw l)]) (when start-draw ((cadr start-draw))))) highlight-rules)
         (let loop ([i (check-with-gap-start view-start)]
                    [depth -1]
-                   [lc 0]
-                   [in-str? view-in-str?])
+                   [lc 0])
             (if (and (fx< i size) (fx< i ve))
                 (let* ([csize (utf8-size (bytevector-u8-ref buffer i))]
                        [wchar (utf8-char-ref buffer i)]
@@ -739,63 +742,44 @@
                     (if (and mark (fx-between (bound-idx i) gap-start mark))
                                   (set-color highlight-color)
                                   (set-color bg-color))
-                    (cond ((and (fx= char 34)
-                                (not (fx= 92 (bytevector-u8-ref buffer (back-char i)))))
-                            (if in-str? (begin (display #\" p) (set-color text-color))
-                                        (begin (set-color string-color) (display #\" p)))
-                            (loop (forward-char i) depth (fx1+ lc) (not in-str?)))
-                          ((and (not in-str?)
-                                (fx> depth -1)
-                                (or (fx= char 41) (fx= char 93) (fx= char 125))
-                                (not (escaped? i)))
-                           (set-color (vector-ref paren-colors 
-                                                  (fxmod depth (vector-length paren-colors))))
-                           (display (integer->char char) p)
-                           (set-color text-color)
-                           (loop (forward-char i) (fx1- depth) (fx1+ lc) in-str?))
-                          ((and (not in-str?) 
-                                (or (fx= char 40) (fx= char 91) (fx= char 123))
-                                (not (escaped? i)))
-                           (set-color (vector-ref paren-colors 
-                                                  (fxmod (fx1+ depth) (vector-length paren-colors))))
-                           (display (integer->char char) p)
-                           (set-color text-color)
-                           (loop (forward-char i) (fx1+ depth) (fx1+ lc) in-str?))
-                          ((fx= char 10)
-                           (set-color bg-color)
-                           (let repeat ([r (fxmod lc  max-cols)])
-                               (when (fx< r max-cols)
-                                     (display #\space p)
-                                     (repeat (fx1+ r))))
-                           (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols))) in-str?))
-                          (else 
-                                (let* ([beginning-word? (or (fx= 0 (back-char i)) (memv (utf8-ref buffer (back-char i)) token-break-list))]
-                                       [nword (and beginning-word? (next-word i))]
-                                       [match-word (and beginning-word?
-                                                        (memp (lambda (l) ((car l) nword)) keyword-highlights))])
-                                    (if (and (not in-str?) match-word)
-                                        ((cadar match-word))
-                                        (when (or (fx= i 0) (and (fx= i gap-end) (fx= 0 gap-start)) (and (not in-str?) (memq char '(32 10 9))))
-                                            (set-color text-color))))
-                                    
-                                (if (and (fx> (wchar-width wchar) 1)
-                                         (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
-                                    ;;add dummy character for wide char wraps
-                                    (begin 
-                                           (let repeat ([times (fx- max-cols (fxmod lc max-cols))])
-                                               (when (fx> times 0)
-                                                   (display #\space p)
-                                                   (repeat (fx1- times))))
-                                           (if (fx= char 9)
-                                               (display (tab-string) p)
-                                               (display (integer->char char) p))
-                                           (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)) (wchar-width wchar)) in-str?))
-                                    (begin 
-                                           (if (fx= char 9)
-                                               (display (tab-string) p)
-                                               (display (integer->char char) p))
-                                           (loop (forward-char i) depth (fx+ lc (wchar-width wchar)) in-str?))))))
-                (begin 
+                    (let* ([beginning-word? (or (fx= 0 (back-char i))
+                                                (memv (utf8-ref buffer (back-char i)) token-break-list)
+                                                (memv (utf8-ref buffer i) token-break-list))]
+                           [nword (and beginning-word? (next-word i))]
+                           [match-word (and beginning-word?
+                                            (find (lambda (l) (let ([m (assq 'match l)]) (and m ((cadr m) nword i)))) highlight-rules))]
+                           [pre (and match-word (assq 'pre match-word))]
+                           [post (and match-word (assq 'post match-word))])
+                        (when (and beginning-word? last-post) (last-post i))
+                        (when pre ((cadr pre) i))
+                        (if post (set! last-post (cadr post)) (when beginning-word? (set! last-post #f)))
+                        (cond
+                            ((fx= char 10)
+                             (set-color bg-color)
+                             (let repeat ([r (fxmod lc  max-cols)])
+                                 (when (fx< r max-cols)
+                                       (display #\space p)
+                                       (repeat (fx1+ r))))
+                             (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)))))
+                            ((and (fx> (wchar-width wchar) 1)
+                                 (fx< 0 (fxmod (fx+ lc (wchar-width wchar)) max-cols) (wchar-width wchar)))
+                            ;;add dummy character for wide char wraps
+                             (begin 
+                                   (let repeat ([times (fx- max-cols (fxmod lc max-cols))])
+                                       (when (fx> times 0)
+                                           (display #\space p)
+                                           (repeat (fx1- times))))
+                                   (if (fx= char 9)
+                                       (display (tab-string) p)
+                                       (display (integer->char char) p))
+                                   (loop (forward-char i) depth (fx+ lc (fx- max-cols (fxmod lc max-cols)) (wchar-width wchar)))))
+                            (else (begin 
+                                   (if (fx= char 9)
+                                       (display (tab-string) p)
+                                       (display (integer->char char) p))
+                                   (loop (forward-char i) depth (fx+ lc (wchar-width wchar))))))))
+                (begin
+                    (for-each (lambda (e) (when (assq 'clean-up e) ((cadr (assq 'clean-up e))))) highlight-rules)
                     (set-color bg-color)
                     (let repeat ([r (fx+ (fx- max-cols (fxmod lc  max-cols))
                                          (fx* (fx- max-rows 1 (fx/ lc max-cols)) max-cols))])
@@ -822,36 +806,43 @@
                    [wc-width (wchar-width wchar)])
                    (cond
                         ((fx<= i 0) 0)
-                        ((or
-                           (fx>= counter (fx- max-cols wc-width))
-                           (fx= 10 (bytevector-u32-native-ref wchar 0)))
+                        ((or (fx>= counter (fx- max-cols wc-width))
+                             (fx= 10 (bytevector-u32-native-ref wchar 0)))
                          i)
                         (else 
-                         (loop (fx+ counter wc-width) (back-char i))))))))
+                      (loop (fx+ counter wc-width) (back-char i))))))))
 
-(define set-view-in-str
+(define set-view-state
     (lambda (new-view-start)
-        (if (fxzero? new-view-start)
-            (set! view-in-str? #f)
-            (let* ([top-view (fxmax new-view-start view-start)]
-                   [bot-view (fxmin new-view-start view-start)]
-                   [from-zero? (fx> (fx- (bound-idx top-view) (bound-idx bot-view)) new-view-start)]
-                   [end (if from-zero? new-view-start top-view)])
-                (let loop ([i (check-with-gap-start (if from-zero? 0 bot-view))]
-                           [count 0])
+        (if (or (not highlight-sections) (fxzero? new-view-start))
+            (set! view-state #f)
+            (let* ([from-zero? (fx> (fxabs (fx- new-view-start view-start)) new-view-start)]
+                   [forward? (or from-zero? (fx> new-view-start view-start))]
+                   [step (if forward? forward-char back-char)]
+                   [end (back-char new-view-start)]
+                   [section (if forward? car cadr)]
+                   [unsection (if forward? cadr car)])
+                (let loop ([i (check-with-gap-start (cond  (from-zero? 0) (forward? view-start) (else (back-char view-start))))]
+                           [state (if from-zero? #f view-state)])
+                    (let ([highlight-section (find (lambda (l) (buffer-match? i (string->utf8 (section l)))) highlight-sections)])
                         (cond 
-                            ((fx>= i end) (cond
-                                            (from-zero? (set! view-in-str? (fxodd? count)))
-                                            ((fxodd? count) (set! view-in-str? (not view-in-str?)))))
-                            ((and (fx= 34 (bytevector-u8-ref buffer i))
-                                  (not (escaped? i)))
-                             (loop (forward-char i) (fx1+ count)))
-                            (else (loop (forward-char i) count))))))))
+                            ((fx= i end) (set! view-state state))
+                            ((and (not state)
+                                  (not (escaped? i))
+                                  highlight-section)
+                             (loop (step i) (caddr highlight-section)))
+                            ((and state
+                                  (not (escaped? i))
+                                  (let ([match (find (lambda (l) (buffer-match? i (string->utf8 (unsection l)))) highlight-sections)])
+                                      (and match (eq? state (caddr match)))))
+                             (loop (step i) #f))
+                            (else (loop (step i) state)))))))))
+
 (define center
     (lambda (s counter)
         (if (fx< counter 0)
             (let ([new-view-start (line-start-visible s)])
-                (set-view-in-str new-view-start)
+                (set-view-state new-view-start)
                 (set! view-start new-view-start))
             (center (move-up-anywhere s) (fx1- counter)))))
 
@@ -992,12 +983,12 @@
                                             (move-gap (move-down gap-end))
                                             ;;TODO: make this more efficient
                                             (set! new-view-start (move-down view-start)))
-                                        (set-view-in-str (bound-idx new-view-start))
+                                        (set-view-state new-view-start)
                                         (set! view-start (bound-idx new-view-start))))))
         ((lambda (a b c d e f) (and (fx= c 64)
                                     (string=? f "M")
                                     (let ([new-view-start (move-up view-start)])
-                                        (set-view-in-str new-view-start)
+                                        (set-view-state new-view-start)
                                         (set! view-start new-view-start)
                                         (let-values ([(i y x) (curs-yx (lambda (i counter lc) (fx>= counter max-rows)))])
                                             (when (fx>= gap-end (move-up i))
@@ -1085,6 +1076,6 @@
 (scheme-start 
     (lambda x
         (dynamic-wind 
-            (lambda () (register-signal-handler SIGWINCH resize-handler) (init) (unless (member "--no-config" x) (load-config)) (load-file x))
+            (lambda () (register-signal-handler SIGWINCH resize-handler) (init) (load-file x) (unless (member "--no-config" x) (load-config)))
             (lambda () (main-loop))
-            (lambda () (endwin)))))
+            (lambda () (endwin) (debug)))))
