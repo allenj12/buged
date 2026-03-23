@@ -48,7 +48,7 @@
           [whitespace? (lambda (i) (memq (buged-utf8-ref buged-buffer i) (map char->integer '(#\space #\tab))))]
           [newline? (lambda (i) (fx= (buged-utf8-ref buged-buffer i) (char->integer #\newline)))])
       (let loop ([depth 0]
-                 [i (buged-check-with-gap-start (buged-back-char buged-gap-start))]
+                 [i buged-gap-end]
                  [count #f])
         (cond
           ((and count (or (fx<= i 0) (newline? i))) (fx+ count buged-tab-size))
